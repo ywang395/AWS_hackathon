@@ -1,0 +1,30 @@
+[
+  {"location": "Unit 4 Cabinet", "med": "Lisinopril", "qty": 40, "distance_rank": 1},
+  {"location": "Unit 4 Cabinet", "med": "Metformin", "qty": 60, "distance_rank": 1},
+  {"location": "Unit 4 Cabinet", "med": "Furosemide", "qty": 25, "distance_rank": 1},
+  {"location": "Unit 4 Cabinet", "med": "Amlodipine", "qty": 30, "distance_rank": 1},
+  {"location": "Unit 4 Cabinet", "med": "Atorvastatin", "qty": 30, "distance_rank": 1},
+  {"location": "Unit 4 Cabinet", "med": "Acetaminophen", "qty": 100, "distance_rank": 1},
+  {"location": "Unit 4 Cabinet", "med": "Warfarin", "qty": 20, "distance_rank": 1},
+  {"location": "Unit 4 Cabinet", "med": "Insulin", "qty": 0, "distance_rank": 1},
+  {"location": "Unit 4 Cabinet", "med": "Heparin", "qty": 0, "distance_rank": 1},
+
+  {"location": "Unit 6 Cabinet", "med": "Metoprolol", "qty": 40, "distance_rank": 1},
+  {"location": "Unit 6 Cabinet", "med": "Levothyroxine", "qty": 50, "distance_rank": 1},
+  {"location": "Unit 6 Cabinet", "med": "Albuterol", "qty": 40, "distance_rank": 1},
+  {"location": "Unit 6 Cabinet", "med": "Insulin", "qty": 15, "distance_rank": 1},
+  {"location": "Unit 6 Cabinet", "med": "Heparin", "qty": 0, "distance_rank": 1},
+
+  {"location": "Central Pharmacy", "med": "Insulin", "qty": 50, "distance_rank": 2},
+  {"location": "Central Pharmacy", "med": "Heparin", "qty": 0, "distance_rank": 2},
+  {"location": "Central Pharmacy", "med": "Warfarin", "qty": 100, "distance_rank": 2},
+  {"location": "Central Pharmacy", "med": "Furosemide", "qty": 80, "distance_rank": 2},
+  {"location": "Central Pharmacy", "med": "Lisinopril", "qty": 200, "distance_rank": 2},
+  {"location": "Central Pharmacy", "med": "Metformin", "qty": 150, "distance_rank": 2},
+  {"location": "Central Pharmacy", "med": "Acetaminophen", "qty": 300, "distance_rank": 2},
+  {"location": "Central Pharmacy", "med": "Amlodipine", "qty": 100, "distance_rank": 2},
+  {"location": "Central Pharmacy", "med": "Atorvastatin", "qty": 100, "distance_rank": 2},
+  {"location": "Central Pharmacy", "med": "Metoprolol", "qty": 100, "distance_rank": 2},
+  {"location": "Central Pharmacy", "med": "Levothyroxine", "qty": 100, "distance_rank": 2},
+  {"location": "Central Pharmacy", "med": "Albuterol", "qty": 100, "distance_rank": 2}
+]
