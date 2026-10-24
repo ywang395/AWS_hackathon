@@ -5,6 +5,7 @@
 //   POST /control/outage       -> fires OutageDetected
 //   POST /control/restore      -> fires SystemRestored
 //   POST /deliveries/{id}/done -> marks delivered
+//   POST /escalations/{id}/resolve -> marks a human escalation handled
 //
 // VITE_MOCK=1 (or `npm run dev:mock`) answers from src/mock.js with the same shapes.
 
@@ -58,6 +59,8 @@ export const chat = (token, pin, message = '') => request('POST', '/chat', { tok
 export const getDashboard = () => request('GET', '/dashboard')
 export const simulateOutage = () => request('POST', '/control/outage', undefined, 30_000)
 export const restoreSystems = () => request('POST', '/control/restore')
+export const resolveEscalation = (escalationId) =>
+  request('POST', `/escalations/${encodeURIComponent(escalationId)}/resolve`)
 // keepalive lets a pending Mark delivered finish while the page closes.
 export const markDelivered = (requestId, { keepalive = false } = {}) =>
   request('POST', `/deliveries/${encodeURIComponent(requestId)}/done`, undefined, 10_000, keepalive)

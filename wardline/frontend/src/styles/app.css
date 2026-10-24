@@ -163,13 +163,22 @@ p, .esc-reason, .step-result { text-wrap: pretty; }
 .row + .row { border-top: 1px solid var(--rule); }
 .row-name { flex: 1; min-width: 0; font-weight: 500; }
 .row-meta { margin-top: 2px; color: var(--muted); font-size: var(--fs-small); }
-/* Needs a human: full width above the board. Each open escalation is one block on a dark tint of
-   the negative hue, with its icon and words; nothing else on the screen is red. */
+/* Needs a human: only the four newest unresolved escalations. Log view is the compact default;
+   Cards is optional. Each row is a real checklist item that can be marked handled. */
 .escalations { margin-bottom: var(--gap); }
+.escalations-header { align-items: flex-start !important; }
+.escalations-title { display: grid; gap: 4px; }
 .esc-none { display: flex; align-items: center; gap: 8px; min-height: var(--target); }
-.esc-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); gap: 12px; }
-.esc { display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px; border-radius: var(--radius-card); background: var(--pill-negative-bg); }
-.esc .icon { margin-top: 3px; }
+.esc-list { display: grid; margin-top: 8px; }
+.esc-list-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.esc-list-log { grid-template-columns: minmax(0, 1fr); gap: 0; }
+.esc { display: flex; align-items: flex-start; gap: 12px; min-width: 0; padding: 14px 16px; border-radius: var(--radius-card); background: var(--pill-negative-bg); }
+.esc-list-log .esc { padding: 14px 0; border-radius: 0; background: transparent; }
+.esc-list-log .esc + .esc { border-top: 1px solid var(--rule); }
+.esc-check { flex: none; width: 20px; height: 20px; margin: 3px 0 0; accent-color: var(--positive); cursor: pointer; }
+.esc-check:disabled { cursor: wait; }
+.esc-resolving { opacity: 0.55; }
+.esc-content { min-width: 0; }
 .esc-reason { font-size: 17px; font-weight: 600; }
 .run-toggle { margin-top: 4px; font-size: var(--fs-small); }
 
@@ -276,8 +285,8 @@ p, .esc-reason, .step-result { text-wrap: pretty; }
   .board > .side { grid-template-columns: minmax(0, 1fr); }
   .controls { grid-template-columns: minmax(0, 1fr); }
   .control-card .btn { justify-self: stretch; }
-  .runs-cards { grid-template-columns: minmax(0, 1fr); }
-  .feed-header { align-items: flex-start; }
+  .runs-cards, .esc-list-cards { grid-template-columns: minmax(0, 1fr); }
+  .feed-header, .escalations-header { align-items: flex-start; }
   .run { grid-template-columns: minmax(0, 1fr); gap: 4px; }
   .panel { padding: 16px; }
 }

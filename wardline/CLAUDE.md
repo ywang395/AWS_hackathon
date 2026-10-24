@@ -178,7 +178,8 @@ GET  /dashboard            → {system, staff:[{name, acked}], escalations:[..],
 
 POST /control/outage       → fires OutageDetected
 POST /control/restore      → fires SystemRestored
-POST /deliveries/{id}/done → marks delivered
+POST /deliveries/{id}/done       → marks delivered
+POST /escalations/{id}/resolve    → marks a human escalation handled
 ```
 
 Salih builds against `VITE_MOCK=1` mock responses matching this contract until the API is live. **Do not change the contract without telling the team.**
