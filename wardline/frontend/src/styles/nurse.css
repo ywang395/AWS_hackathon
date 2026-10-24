@@ -1,0 +1,118 @@
+/* Nurse view: restrained, phone first, one-handed, legible in a dark ward.
+   Clinical rules from the skill override: 16px+ text, 48px+ targets, no motion, colour always
+   with an icon and words, the downtime header always on screen. */
+
+.nurse { min-height: 100svh; padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
+
+/* the header never scrolls away */
+.nurse-header { position: sticky; top: 0; z-index: 5; background: var(--ground); border-bottom: 1px solid var(--border); }
+.downtime-banner { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; min-height: 44px; padding: 8px 16px; background: var(--pill-negative-bg); }
+.downtime-banner strong { font-weight: 700; }
+.records-line { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 8px 16px; font-size: 17px; }
+.records-line strong { font-weight: 700; }
+
+/* PIN */
+.pin { max-width: 480px; margin: 0 auto; padding: 32px 16px; }
+.pin .brand { display: flex; align-items: center; gap: 10px; margin-bottom: 32px; font-weight: 600; }
+.pin h1 { font-size: 26px; line-height: 1.2; font-weight: 700; margin-bottom: 8px; }
+.pin form > p { margin-bottom: 28px; color: var(--muted); }
+.pin label { display: block; margin-bottom: 8px; font-weight: 600; }
+.pin-input { display: block; width: 100%; height: 64px; padding: 0 16px; border: 1px solid var(--control); border-radius: var(--radius-card); background: var(--surface); font-size: 28px; letter-spacing: 0.3em; }
+.pin .btn-big { width: 100%; margin-top: 20px; }
+.form-error { display: flex; align-items: flex-start; gap: 8px; margin-top: 12px; padding: 12px; border-radius: var(--radius-card); background: var(--pill-negative-bg); }
+.form-error .icon { margin-top: 2px; color: var(--negative); }
+
+/* layout: one tab at a time on the phone; both columns from 1024px */
+.ward { padding: 0 16px; }
+.ward[data-tab="patients"] .ward-chat, .ward[data-tab="chat"] .ward-patients { display: none; }
+.ward-title { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 16px; padding: 20px 0 8px; }
+.ward-title h1 { font-size: 24px; line-height: 1.2; font-weight: 700; }
+.section-title { margin: 24px 0 12px; font-size: 20px; line-height: 1.3; font-weight: 600; }
+.btn-quiet { border-color: var(--control); background: transparent; }
+.btn-wide { width: 100%; margin-top: 16px; }
+
+/* due next */
+.due { display: grid; gap: 8px; }
+.due-row { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 12px; padding: 14px 16px; border-radius: var(--radius-card); background: var(--surface); }
+.due-body { min-width: 0; }
+.due-time { font-size: 22px; font-weight: 700; line-height: 1.2; }
+.due-what { font-size: 17px; }
+.due-tags { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.due-tags:empty { display: none; }
+.delivery-line { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.delivery-line > span:last-child { flex: 1 1 12em; min-width: 0; }
+
+/* patient cards */
+.cards { display: grid; gap: 16px; }
+/* taste-skill-ignore: the style's card shadow, shared with the dashboard panels */
+.card { padding: 18px 16px; border-radius: var(--radius-card); background: var(--surface); box-shadow: var(--shadow); }
+.card-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.card-head h3 { font-size: 24px; line-height: 1.2; font-weight: 700; }
+.identity { display: flex; flex-wrap: wrap; gap: 2px 12px; margin-top: 6px; font-size: 18px; overflow-wrap: anywhere; }
+.identity strong { font-weight: 600; }
+.allergy { display: flex; align-items: flex-start; gap: 10px; margin-top: 14px; padding: 12px; border-radius: var(--radius-card); font-size: 17px; overflow-wrap: anywhere; }
+.allergy .icon { margin-top: 2px; }
+.allergy-yes { background: var(--pill-negative-bg); }
+.allergy-yes strong { font-weight: 700; }
+.allergy-label { color: var(--pill-negative-ink); font-weight: 600; }
+.allergy-none { background: var(--raised); }
+.meds { display: grid; gap: 10px; margin-top: 16px; }
+.med { display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap; }
+.med .icon { margin-top: 2px; }
+.med-name { flex: 1 1 160px; font-weight: 600; }
+.med-due { white-space: nowrap; }
+.vitals { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 16px; }
+.vitals div { padding: 8px 10px; border-radius: var(--radius-card); background: var(--raised); }
+.vitals dt { color: var(--muted); font-size: var(--fs-small); }
+.vitals dd { font-size: 17px; font-weight: 600; white-space: nowrap; }
+.vitals-time { margin-top: 6px; font-size: var(--fs-small); }
+.notes { margin-top: 12px; }
+
+/* chat */
+.messages { display: grid; gap: 12px; padding-bottom: 16px; }
+.message { max-width: 92%; padding: 12px 14px; border-radius: var(--radius-card); background: var(--surface); }
+.message-mine { justify-self: end; background: var(--raised); }
+.message-wardline { justify-self: start; }
+.message-stop { border: 2px solid var(--negative); }
+.message-pending { color: var(--muted); background: transparent; padding-left: 0; }
+.message-who { color: var(--muted); font-size: var(--fs-small); margin-bottom: 4px; }
+.message-text { white-space: pre-line; overflow-wrap: anywhere; }
+.message-text .icon { display: inline-block; vertical-align: -4px; margin-right: 6px; }
+.composer { position: fixed; z-index: 4; inset: auto 0 calc(64px + env(safe-area-inset-bottom)) 0; padding: 10px 16px; background: var(--ground); border-top: 1px solid var(--border); }
+.ward[data-tab="chat"] .ward-chat { padding-bottom: 168px; }
+.quick { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 10px; }
+.chip { flex: none; min-height: var(--target); padding: 0 16px; border: 1px solid var(--control); border-radius: 999px; background: var(--surface); cursor: pointer; }
+.chip:active:not(:disabled) { background: var(--control); }
+.composer-row { display: flex; gap: 8px; }
+.composer-input { flex: 1; min-width: 0; height: 52px; padding: 0 14px; border: 1px solid var(--control); border-radius: var(--radius-card); background: var(--surface); font-size: 17px; }
+.composer-input::placeholder { color: var(--muted); }
+.composer-row .btn { min-height: 52px; }
+
+/* the tab bar sits in thumb reach; the selected tab: white label + accent line on its top edge */
+.tabbar { position: fixed; z-index: 6; inset: auto 0 0 0; display: grid; grid-template-columns: 1fr 1fr; padding-bottom: env(safe-area-inset-bottom); background: var(--ground); border-top: 1px solid var(--border); }
+.tabbar button { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-height: 64px; border: 0; background: none; color: var(--muted); font-size: 15px; cursor: pointer; }
+.tabbar button[aria-pressed="true"] { color: var(--text); font-weight: 600; }
+.tabbar button[aria-pressed="true"]::before { content: ""; position: absolute; top: -1px; left: 25%; right: 25%; height: 2px; background: var(--accent); }
+
+/* STOP: covers everything, closes only on its button */
+.stop { position: fixed; z-index: 50; inset: 0; display: grid; place-items: center; overflow: auto; padding: 24px 20px calc(24px + env(safe-area-inset-bottom)); background: var(--stop); color: #fff; }
+.stop-inner { width: 100%; max-width: 560px; display: grid; justify-items: start; gap: 16px; }
+.stop h2 { font-size: 64px; line-height: 1; font-weight: 800; letter-spacing: -0.02em; }
+.stop-lead { font-size: 24px; font-weight: 700; }
+.stop-text { font-size: 20px; line-height: 1.45; white-space: pre-line; }
+.btn-stop { width: 100%; margin-top: 12px; background: #fff; color: #000; border-color: transparent; }
+.btn-stop:hover { background: #ececec; }
+
+@media (min-width: 1024px) {
+  .nurse { padding-bottom: 0; }
+  /* the header's text starts on the same edge as the ward below it (max 1320px, centred) */
+  .downtime-banner, .records-line { padding-inline: max(32px, calc((100% - 1320px) / 2 + 32px)); }
+  .tabbar { display: none; }
+  .ward { display: grid; grid-template-columns: minmax(0, 1fr) 440px; gap: 32px; max-width: 1320px; margin: 0 auto; padding: 0 32px; }
+  .ward[data-tab] .ward-patients, .ward[data-tab] .ward-chat { display: block; }
+  .ward-patients { padding-bottom: 32px; }
+  .ward-chat { position: sticky; top: 89px; display: flex !important; flex-direction: column; height: calc(100svh - 89px); padding-bottom: 0 !important; }
+  .ward-chat .messages { flex: 1; overflow: auto; align-content: start; }
+  .composer { position: static; padding: 12px 0 16px; }
+  .cards { grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); }
+}
