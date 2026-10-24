@@ -11,14 +11,16 @@ try:
     from backend.shared.agent_loop import (
         AgentFeedEvent,
         AgentFeedLogger,
-        JsonLoggingAgentFeed,
+        default_feed_logger,
+        next_feed_timestamp,
     )
 except ModuleNotFoundError:
-    # Lambda packages may expose backend/ as the import root.
+    # Some hosts may expose backend/ as the import root.
     from shared.agent_loop import (
         AgentFeedEvent,
         AgentFeedLogger,
-        JsonLoggingAgentFeed,
+        default_feed_logger,
+        next_feed_timestamp,
     )
 
 # This memory store is process-local and will be replaced by DynamoDB in Phase 2.
@@ -52,6 +54,14 @@ def reset_escalations() -> None:
         _ESCALATION_STORE.clear()
 
 
+def get_escalation(escalation_id: str) -> dict[str, Any] | None:
+    """Return a copy of one stored escalation, or None if it does not exist."""
+
+    with _STORE_LOCK:
+        record = _ESCALATION_STORE.get(escalation_id)
+        return dict(record) if record is not None else None
+
+
 def escalate(
     source_agent: str,
     reason: str,
@@ -74,7 +84,7 @@ def escalate(
     normalized_room = room.strip() if isinstance(room, str) else ""
     normalized_role = _require_non_empty_string(to_role, field="to_role")
     active_feed = (
-        feed_logger if feed_logger is not None else JsonLoggingAgentFeed()
+        feed_logger if feed_logger is not None else default_feed_logger()
     )
 
     escalation = {
@@ -88,7 +98,7 @@ def escalate(
         "resolved": False,  # New escalations always start unresolved.
     }
     feed_event = AgentFeedEvent(
-        ts=_utc_timestamp(),
+        ts=next_feed_timestamp(),
         agent=normalized_source,
         action="escalation_created",
         detail=dict(escalation),
