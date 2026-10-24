@@ -85,8 +85,8 @@
 .composer { position: fixed; z-index: 4; inset: auto 0 calc(64px + env(safe-area-inset-bottom)) 0; padding: 10px 16px; background: var(--ground); border-top: 1px solid var(--border); }
 .ward[data-tab="chat"] .ward-chat { padding-bottom: 168px; }
 .guide { margin-bottom: 10px; color: var(--muted); font-size: var(--fs-small); text-wrap: pretty; }
-.room-link { display: inline-flex; align-items: center; min-height: 32px; padding: 0 6px; margin: -4px 0; border: 1px solid var(--control); border-radius: var(--radius-card); background: var(--raised); color: var(--text); font-weight: 700; cursor: pointer; }
-.room-link:hover { border-color: var(--accent); }
+.room-link { display: inline; padding: 0; margin: 0; border: 0; background: none; color: var(--accent); font-weight: 700; cursor: pointer; text-underline-offset: 2px; }
+.room-link:hover { text-decoration: underline; }
 .quick { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 10px; }
 .chip { flex: none; min-height: var(--target); padding: 0 16px; border: 1px solid var(--control); border-radius: 999px; background: var(--surface); cursor: pointer; }
 .chip:active:not(:disabled) { background: var(--control); }
