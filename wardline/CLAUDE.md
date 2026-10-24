@@ -256,17 +256,17 @@ Phase 2 (after Sunny's agent loop + Lin's API)
 
 #### Salih — Frontend
 Phase 1 (start now)
-- [ ] Vite + React app, routes `/nurse?token=`, `/dashboard`, `/control`
-- [ ] `api.js` with **mock responses exactly matching §7**, toggled by `VITE_MOCK=1`
-- [ ] NurseView: PIN screen, "Records as of" bar, brief card, patient cards, chat, delivery status
-- [ ] Dashboard: red/green system status, staff ack list, escalations panel, deliveries board, live agent feed (poll every 3s)
-- [ ] Control page: "Simulate ransomware" + "Restore systems" buttons
-- [ ] Mobile-first styling, tested at phone width
-- [ ] Make the agent feed look impressive — it's the demo centerpiece
+- [x] Vite + React app, routes `/nurse?token=`, `/dashboard`, `/control`
+- [x] `api.js` with **mock responses exactly matching §7**, toggled by `VITE_MOCK=1`
+- [x] NurseView: PIN screen, "Records as of" bar, brief card, patient cards, chat, delivery status
+- [x] Dashboard: red/green system status, staff ack list, escalations panel, deliveries board, live agent feed (poll every 3s)
+- [x] Control page: "Simulate ransomware" + "Restore systems" buttons
+- [x] Mobile-first styling, tested at phone width
+- [x] Make the agent feed look impressive — it's the demo centerpiece
 
 Phase 2 (after Lin's API URL)
 - [ ] Mock mode off; connect to real API
-- [ ] Loading, error, expired-link states
+- [x] Loading, error, expired-link states
 - [ ] Build `dist/` → hand to Lin for S3
 - [ ] Record backup demo video
 

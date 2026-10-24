@@ -16,6 +16,22 @@ Full spec: `wardline/CLAUDE.md`. Tests run from `wardline/` with `python -m pyte
 - `backend/agents/alert_agent/app.py`: alert, ack, resend, escalate. Opening the link with a valid PIN counts as the ack.
 - Demo cases (Kim escalation, double-dose STOP, refusing another nurse's patient): `backend/tests/test_demo_cases.py`.
 
+### Frontend (`frontend/`)
+
+React + Vite, no other dependencies. Routes: `/nurse?token=…` (nurse view), `/dashboard`, `/control`.
+
+```bash
+cd wardline/frontend
+npm install
+npm run dev:mock      # no backend: answers from src/mock.js (demo PIN 1234, any token)
+npm run dev           # live: the API address comes from public/config.js (VITE_API_URL in .env overrides it in dev)
+npm run build         # dist/ for the S3 bucket
+```
+
+The built app reads the API address from `config.js` at load time. When the EC2 public IP changes, edit `config.js` in the bucket; no rebuild is needed. Light and dark themes follow the device, and the toggle in the rail or the nurse header remembers a choice per device.
+
+In mock mode, Simulate ransomware on `/control` plays the agents' first half hour on `/dashboard` in about 40 seconds. `?mock-outage=45` on any page starts that outage 45 seconds in, for rehearsals. The demo nurse link is `/nurse?token=demo-n001`.
+
 ### Configuration
 
 | Env var | Default | Effect |

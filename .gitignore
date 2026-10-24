@@ -8,3 +8,4 @@ explanation.md
 __pycache__/
 .pytest_cache/
 .pytest_tmp/
+.taste-skill/
