@@ -91,6 +91,18 @@ def test_different_medication_or_due_time_creates_new_delivery() -> None:
     assert len(deliveries._DELIVERY_STORE) == 3
 
 
+def test_build_request_id_is_the_shared_canonical_key() -> None:
+    assert deliveries.build_request_id(
+        " 304 ", "Insulin", "2026-10-23T19:00:00-07:00"
+    ) == "304-insulin-2026-10-24T02:00:00Z"
+    delivery = create_delivery(**delivery_args(med="Insulin"))
+    assert delivery["request_id"] == deliveries.build_request_id(
+        "304", "INSULIN", "2026-10-24T02:00:00Z"
+    )
+    assert deliveries.get_delivery(delivery["request_id"]) == delivery
+    assert deliveries.list_deliveries() == [delivery]
+
+
 def test_returned_delivery_does_not_mutate_store() -> None:
     first = create_delivery(**delivery_args())
     first["status"] = "delivered"

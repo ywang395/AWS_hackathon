@@ -19,6 +19,7 @@ from backend.shared.agent_loop import (
     BedrockResponseError,
     run_agent,
 )
+from backend.tests.helpers import RecordingFeed
 
 
 class FakeBedrockClient:
@@ -31,14 +32,6 @@ class FakeBedrockClient:
         if not self.responses:
             raise AssertionError("Fake Bedrock client has no response left.")
         return deepcopy(self.responses.pop(0))
-
-
-class RecordingFeed:
-    def __init__(self) -> None:
-        self.events: list[AgentFeedEvent] = []
-
-    def log(self, event: AgentFeedEvent) -> None:
-        self.events.append(event)
 
 
 def tool_use_response(

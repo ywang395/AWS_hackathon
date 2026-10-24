@@ -30,6 +30,17 @@ def test_routing_schema_names_match_prompt_contract() -> None:
     }
 
 
+def test_send_email_schema_matches_implementation_and_hides_address() -> None:
+    from backend.agents.routing_agent.app import send_email
+
+    schema = tool_specs_by_name()["send_email"]["inputSchema"]["json"]
+
+    assert schema["required"] == ["runner_id", "subject", "body"]
+    assert list(inspect.signature(send_email).parameters) == schema["required"]
+    # The model never supplies a recipient address.
+    assert not {"to", "email"} & set(schema["properties"])
+
+
 def test_every_tool_uses_bedrock_object_schema() -> None:
     for spec in ROUTING_TOOL_SPECS:
         tool_spec = spec["toolSpec"]

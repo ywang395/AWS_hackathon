@@ -5,17 +5,18 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 
+from backend.shared.config import resolve_region
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_STEPS = 8
 DEFAULT_MODEL_MAX_TOKENS = 1024
-DEFAULT_REGION = "us-east-1"  # CLAUDE.md section 3
 SUPPORTED_FINAL_STOP_REASONS = frozenset({"end_turn", "stop_sequence"})
 
 ToolImplementation = Callable[..., Any]
@@ -54,6 +55,12 @@ class AgentFeedEvent:
     action: str
     detail: Mapping[str, Any]
 
+    @property
+    def day(self) -> str:
+        """AgentFeed partition key (CLAUDE.md §5): the UTC date of ``ts``."""
+
+        return self.ts[:10]
+
 
 class AgentFeedLogger(Protocol):
     """Interface used by the agent loop to record auditable decisions."""
@@ -69,6 +76,7 @@ class JsonLoggingAgentFeed:
 
     def log(self, event: AgentFeedEvent) -> None:
         payload = {
+            "day": event.day,
             "ts": event.ts,
             "agent": event.agent,
             "action": event.action,
@@ -77,8 +85,39 @@ class JsonLoggingAgentFeed:
         logger.info(json.dumps(payload, default=str, separators=(",", ":")))
 
 
-def _utc_timestamp() -> str:
-    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
+_FEED_TS_LOCK = threading.Lock()
+_last_feed_ts: datetime | None = None
+
+
+def next_feed_timestamp() -> str:
+    """Return a strictly increasing UTC timestamp for the AgentFeed sort key.
+
+    Back-to-back events often land in the same microsecond; bumping by 1us
+    keeps every ``(day, ts)`` key unique within the process so no feed entry
+    overwrites another.
+    """
+
+    global _last_feed_ts
+    with _FEED_TS_LOCK:
+        now = datetime.now(UTC)
+        if _last_feed_ts is not None and now <= _last_feed_ts:
+            now = _last_feed_ts + timedelta(microseconds=1)
+        _last_feed_ts = now
+    return now.isoformat(timespec="microseconds").replace("+00:00", "Z")
+
+
+def default_feed_logger() -> AgentFeedLogger:
+    """Write to the DynamoDB AgentFeed table when AGENT_FEED_TABLE is set.
+
+    Without it (local runs, unit tests) events go to structured JSON logs.
+    """
+
+    if os.getenv("AGENT_FEED_TABLE"):
+        # Imported lazily: db.py imports AgentFeedEvent from this module.
+        from backend.shared.db import DynamoAgentFeed
+
+        return DynamoAgentFeed()
+    return JsonLoggingAgentFeed()
 
 
 def _emit_feed_event(
@@ -88,7 +127,7 @@ def _emit_feed_event(
     detail: Mapping[str, Any],
 ) -> None:
     event = AgentFeedEvent(
-        ts=_utc_timestamp(),
+        ts=next_feed_timestamp(),
         agent=agent_name,
         action=action,
         detail=dict(detail),
@@ -201,19 +240,12 @@ def _resolve_model_id(model_id: str | None) -> str:
 
 
 def _create_bedrock_client(region_name: str | None) -> Any:
-    resolved_region = (
-        region_name
-        or os.getenv("BEDROCK_REGION")
-        or os.getenv("AWS_REGION")
-        or os.getenv("AWS_DEFAULT_REGION")
-        or DEFAULT_REGION
-    )
     import boto3
     from botocore.config import Config
 
     return boto3.client(
         "bedrock-runtime",
-        region_name=resolved_region,
+        region_name=resolve_region(region_name, "BEDROCK_REGION"),
         config=Config(
             connect_timeout=3,
             read_timeout=25,
@@ -277,7 +309,7 @@ class AgentLoop:
         active_feed = ( # get the feed logger 
             self._feed_logger
             if self._feed_logger is not None
-            else JsonLoggingAgentFeed()
+            else default_feed_logger()
         )
         active_client = ( # client from AWS bedrock 
             self._bedrock_client

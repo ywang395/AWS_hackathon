@@ -5,6 +5,9 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
+# Seed-data runner Marcus Webb (data/nurses.json).
+MARCUS_RUNNER_ID = "N005"
+
 
 class CannedBedrockClient:
     """Return pre-scripted Converse responses without calling AWS."""
@@ -58,28 +61,28 @@ def final_text(text: str) -> dict[str, Any]:
 
 def insulin_demo_responses(due_at: str) -> list[dict[str, Any]]:
     return [
-        tool_use("tool-1", "get_doses_due", {}),
-        tool_use("tool-2", "find_stock", {"med": "insulin"}),
+        tool_use("tool-1", "get_doses_due", {"room": "304", "med": "Insulin"}),
+        tool_use("tool-2", "find_stock", {"med": "Insulin"}),
         tool_use("tool-3", "get_runners", {}),
         tool_use(
             "tool-4",
             "create_delivery",
             {
                 "room": "304",
-                "med": "insulin",
+                "med": "Insulin",
                 "due_at": due_at,
                 "from_location": "Unit 6 cabinet",
                 "priority": "critical",
-                "runner_id": "marcus",
+                "runner_id": MARCUS_RUNNER_ID,
             },
         ),
         tool_use(
             "tool-5",
             "send_email",
             {
-                "runner_id": "marcus",
-                "subject": "Critical delivery: insulin to room 304",
-                "body": "Pick up insulin from Unit 6 cabinet.",
+                "runner_id": MARCUS_RUNNER_ID,
+                "subject": "Critical delivery: Insulin to room 304",
+                "body": "Pick up Insulin from Unit 6 cabinet for room 304.",
             },
         ),
         final_text("Insulin routed from Unit 6 to room 304 with Marcus."),

@@ -66,7 +66,13 @@ def seed_table(fixture_file: str, *, dry_run: bool = False) -> int:
         print(f"[dry-run] would write {len(items)} items to table '{name}'")
         return len(items)
 
-    table = db.get_table(FIXTURES[fixture_file])
+    if dynamodb is None:
+        import boto3  # local import: only needed when actually talking to AWS
+
+        region = os.environ.get("AWS_REGION", "us-east-1")
+        dynamodb = boto3.resource("dynamodb", region_name=region)
+
+    table = dynamodb.Table(table_name)
     with table.batch_writer() as batch:
         for item in items:
             batch.put_item(Item=db.to_dynamo(item))

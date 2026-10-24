@@ -106,7 +106,7 @@ def test_patients_and_nurses_reference_each_other_consistently():
 
 
 # ---------------------------------------------------------------------------
-# §8 routing agent tool set -- CLAUDE.md lists send_email for runner dispatch
+# §8 routing agent tool set -- CLAUDE.md lists send_email (SES) for runner dispatch
 # ---------------------------------------------------------------------------
 
 def test_routing_agent_tool_names_cover_claude_md_section_8():
