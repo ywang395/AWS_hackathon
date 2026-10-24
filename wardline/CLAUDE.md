@@ -189,10 +189,14 @@ Phase 1 (start now)
 
 > **IAM constraint (workshop account):** `WSParticipantRole` denies `iam:CreateRole`, so the Phase 1 stack creates **no Lambdas** (every Lambda needs an execution role). EventBridge rules and the HTTP API are deployed **without** Lambda targets/integrations; those are wired in Phase 2 once real agent code exists and an execution role is sorted. Deploy with `aws cloudformation deploy --template-file template.yaml --stack-name wardline --capabilities CAPABILITY_IAM CAPABILITY_AUTO_EXPAND --region us-east-1` (the Homebrew `sam` CLI is broken on this machine — Python 3.15/libexpat mismatch).
 
-> **Deployed resources (share these):**
+> **Deployed resources (CURRENT — account `720318561967`):**
 > - Region: `us-east-1`
-> - **Live backend API (EC2): `http://32.192.240.107:8000`**. IP changes on instance stop/start; the frontend reads it from `config.js` in the bucket, so edit that one file (no rebuild).
-> - **Live frontend (S3): `http://wardline-frontend-580066280520.s3-website-us-east-1.amazonaws.com`** — `/dashboard`, `/control`, `/nurse?token=…`. Must stay **http**: the API is http, so an https page would be blocked from calling it (mixed content). Deep links return status 404 with the app HTML (S3 SPA fallback); browsers render them normally.
+> - **Live backend API (EC2): `http://54.164.16.115:8000`** — instance `i-011a678929e9a0109`, SG `sg-0f59c089dc9101553`, key `wardline-key2` (`/tmp/wardline-key2.pem`). IP changes on stop/start; frontend reads it from `config.js` in the bucket (no rebuild).
+> - **Live frontend (S3): `http://wardline-frontend-720318561967.s3-website-us-east-1.amazonaws.com`** — `/dashboard`, `/control`, `/nurse?token=…`. Must stay **http** (API is http; https page would hit mixed-content block). Deep links return 404 status with app HTML (S3 SPA fallback); browsers render them.
+> - EventBridge bus `wardline`; DynamoDB seeded (12 nurses / 16 patients / 25 inventory); Bedrock Haiku via `us.anthropic.claude-haiku-4-5-20251001-v1:0`.
+> - SES: sender `lintuwun@gmail.com`, demo inbox `lintu.wang@sjsu.edu` (both must be re-verified in this account — click the SES links).
+>
+> **NOTE — original account `580066280520` was swapped by the event portal; everything was redeployed here.** Prior URLs (`32.192.240.107`, `wardline-frontend-580066280520`) are dead.
 > - (Unused) HTTP API GW base URL from the empty skeleton: `https://6haxdip6xj.execute-api.us-east-1.amazonaws.com` — no routes; backend is the EC2 server, not API Gateway.
 > - EventBridge bus: `wardline`
 > - DynamoDB tables: `Nurses`, `Patients`, `Inventory`, `Deliveries`, `DowntimeLog`, `Tokens`, `Alerts`, `Escalations`, `AgentFeed`, `ChatHistory`, `SystemState`
