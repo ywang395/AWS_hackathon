@@ -1,0 +1,5 @@
+[
+  {"location": "Unit 4 cabinet", "med": "insulin", "qty": 0, "distance_rank": 1},
+  {"location": "Unit 6 cabinet", "med": "insulin", "qty": 4, "distance_rank": 2},
+  {"location": "Central pharmacy", "med": "heparin", "qty": 0, "distance_rank": 3}
+]
