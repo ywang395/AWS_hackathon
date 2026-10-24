@@ -29,17 +29,19 @@ Wardline supports the hospital's downtime procedures (paper MAR stays the offici
 
 ## 3. Stack
 
+> **⚠️ COMPUTE CHANGED (team decision): no Lambda, no API Gateway.** The provided workshop account (`580066280520`) cannot run Lambda — IAM is locked down (`iam:CreateRole` and `iam:PassRole` both denied; the only usable identity, `WSParticipantRole`, is not trusted by the Lambda service). **We run the backend as a single FastAPI/Flask server on EC2** (EC2 launch is allowed and verified). All other AWS services work in-account (DynamoDB, Bedrock, SES, EventBridge, S3). The §7 API contract and the agent/tool code do NOT change — only the hosting/entry point. Backend owners: wrap your handlers as server routes instead of Lambda handlers; EventBridge-triggered agents become in-process calls + a background scheduler thread.
+
 | Layer | Choice |
 |---|---|
 | Language (backend) | Python 3.12, boto3 |
 | AI | Amazon Bedrock, **Converse API with tool use**, Claude Haiku. `MODEL_ID` env var = **`us.anthropic.claude-haiku-4-5-20251001-v1:0`** (us inference profile; bare model ID is not on-demand invocable) |
-| Compute | AWS Lambda (one function per agent + API handlers) |
-| Events | EventBridge custom bus `wardline` + EventBridge Scheduler (5-min routing scan, ack checks) |
-| Data | DynamoDB (on-demand) |
+| Compute | **One FastAPI/Flask server on EC2** (single process; agents + API as routes). **NOT Lambda** — the workshop account blocks Lambda entirely (can't `CreateRole`, can't `PassRole` any Lambda-assumable role, and `WSParticipantRole` isn't trusted by the Lambda service). EventBridge triggers are replaced by in-process calls / a background scheduler thread. The agent/tool/handler code is unchanged — only the entry point wrapping it changes. |
+| Events | EventBridge custom bus `wardline` is deployed and used for the live-feed/decoupling story, but agent triggering is **in-process** on the server (no Lambda targets). The 5-min routing scan + ack checks run as a background thread/APScheduler job on the server instead of EventBridge Scheduler. |
+| Data | DynamoDB (on-demand) — works in-account, accessed from the server via the `wardline` profile / instance creds |
 | Email | Amazon SES v2 `send_email` (sandbox: **verify every demo email address**, both sender and recipients, until production access granted). Replaces SMS — the workshop account has no SMS origination and a non-raisable $1 SMS cap. |
-| API | API Gateway HTTP API, CORS enabled |
-| Frontend | React + Vite (static build), hosted on S3 static website |
-| IaC | AWS SAM (`template.yaml`) |
+| API | FastAPI/Flask routes on the EC2 server (CORS enabled). The §7 contract is unchanged; only the host changes (was API Gateway HTTP API). |
+| Frontend | React + Vite (static build), hosted on S3 static website; points at the EC2 server URL |
+| IaC | AWS SAM `template.yaml` deploys the **data plane only** (DynamoDB tables, EventBridge bus, S3). Compute (EC2 + server) is provisioned/run separately. |
 | Region | `us-east-1` (everything in ONE region with Bedrock model access enabled) |
 
 ## 4. Repo structure
@@ -47,15 +49,16 @@ Wardline supports the hospital's downtime procedures (paper MAR stays the offici
 ```
 wardline/
 ├── CLAUDE.md
-├── template.yaml                 # SAM: all Lambdas, tables, bus, rules, API
+├── template.yaml                 # SAM: data plane only (tables, bus, S3). No Lambdas/API (see §3).
 ├── backend/
+│   ├── server.py                 # FastAPI/Flask entry point — mounts the §7 routes + background scheduler (replaces Lambda+API GW)
 │   ├── shared/
 │   │   ├── agent_loop.py         # Bedrock Converse tool-use loop (shared by all agents)
 │   │   ├── db.py                 # DynamoDB helpers
 │   │   ├── events.py             # put_event() helper
 │   │   ├── notify.py             # SES send_email helper (+ DRY_RUN mode)  [formerly sms.py]
 │   │   └── auth.py               # token + PIN verification
-│   ├── agents/
+│   ├── agents/                   # handler fns called by server.py routes / scheduler (not Lambda handlers)
 │   │   ├── alert_agent/app.py
 │   │   ├── nurse_agent/app.py    # = chat_handler (API)
 │   │   ├── routing_agent/app.py
@@ -158,7 +161,7 @@ Tools bound with server-side context (e.g. `get_my_patients` closes over the ver
 
 | Person | Owns |
 |---|---|
-| **Lin — AWS** | `template.yaml` (SAM), DynamoDB tables, EventBridge bus/rules/Scheduler, SES + **verified demo email addresses**, API Gateway + CORS, S3 hosting, Bedrock model access, deploy pipeline. Also `/control` and `/dashboard` Lambdas. **IAM:** no IAM users and no new IAM roles — the workshop account's `WSParticipantRole` denies `iam:CreateUser`/`iam:CreateRole`. Lambda execution roles must reuse an existing role or wait on the operator (see Phase 2 blocker). |
+| **Lin — AWS** | `template.yaml` (data plane: DynamoDB tables, EventBridge bus, S3), SES + **verified demo email addresses**, Bedrock model access, **EC2 instance + the `server.py` host/deploy** (replaces Lambda + API Gateway), S3 hosting, deploy pipeline. Also the `/control` and `/dashboard` route handlers. **IAM:** no IAM users, no new/usable IAM roles — `WSParticipantRole` denies `iam:CreateUser`, `iam:CreateRole`, and `iam:PassRole`, and isn't trusted by Lambda. This is why compute is EC2, not Lambda (see §3). |
 | **Sunny — Backend (agents core)** | `shared/agent_loop.py`, `shared/events.py`, **routing agent** + tools (`stock.py`, `deliveries.py`), AgentFeed logging, escalation tool |
 | **Alisher — Backend (nurse + alerts)** | `data/*.json` + `scripts/seed.py` (first!), `shared/auth.py`, **nurse agent** (`/chat`, brief, log_event, double-dose check, request_med), **alert agent** (send, ack, resend, escalate) |
 | **Salih — Frontend** | NurseView (brief, patient cards, chat, delivery status), Dashboard (staff acks, escalations, deliveries board, live agent feed), Control page (2 buttons), mock mode, demo visuals |
@@ -193,14 +196,17 @@ Phase 1 (start now)
 > - Frontend URL: `http://wardline-frontend-580066280520.s3-website-us-east-1.amazonaws.com`
 > - SES verified sender: `lintuwun@gmail.com` (recipients must also be SES-verified while in sandbox)
 
-Phase 2 (after backend pushes code)
-- [ ] **BLOCKER — Lambda execution role.** The account denies `iam:CreateRole`, so SAM can't auto-create Lambda roles. Before any Lambda can deploy: either (a) get the operator to grant `iam:CreateRole`/`PassRole` or hand us a pre-made Lambda execution role ARN, or (b) reuse an existing role we're allowed to `PassRole`. Every Lambda below must be given an explicit `Role:` ARN (no implicit role).
-- [ ] Wire real Lambdas into SAM (agents, `/chat`, `/dashboard`, `/control`) — add API routes + EventBridge rule targets (both omitted in the Phase 1 skeleton for the same IAM reason)
-- [ ] `/control/outage` + `/control/restore` Lambdas (`put_events` only)
-- [ ] `/dashboard` Lambda (reads tables, returns §7 shape)
-- [ ] EventBridge Scheduler: 5-min routing scan
-- [ ] Deploy frontend build to S3
-- [ ] CloudWatch logs; end-to-end flow test
+Phase 2 (after backend pushes code) — **compute is EC2 + FastAPI/Flask, NOT Lambda (see §3 banner)**
+- [x] ~~Lambda execution role blocker~~ — RESOLVED by dropping Lambda. Account can't run Lambda at all (CreateRole + PassRole both denied). **Decision: one FastAPI/Flask server on EC2.** EC2 launch verified as allowed.
+- [ ] Launch EC2 instance (t3.micro/small, default VPC, Amazon Linux 2023), open SG for the server port, attach egress for AWS APIs
+- [ ] Stand up the server: one FastAPI/Flask app exposing the §7 routes (`/chat`, `/dashboard`, `/control/outage`, `/control/restore`, `/deliveries/{id}/done`), CORS enabled
+- [ ] Mount backend handlers as routes (agents, `/chat`, `/dashboard`, `/control`) — same code, server entry point instead of Lambda handler
+- [ ] Replace EventBridge-triggered agents with in-process calls; run the 5-min routing scan + ack checks as a background scheduler thread (APScheduler)
+- [ ] `/control/outage` + `/control/restore` → put_events on the `wardline` bus (kept for the feed/story) AND trigger the agent in-process
+- [ ] `/dashboard` route (reads tables, returns §7 shape)
+- [ ] Credentials on EC2: use the instance's `wardline`-equivalent access (env creds) to reach DynamoDB/Bedrock/SES
+- [ ] Deploy frontend build to S3; point `VITE_API_URL` at the EC2 server
+- [ ] Logs (server stdout / CloudWatch agent optional); end-to-end flow test
 - [ ] (If time) request SES production access to email unverified addresses; else keep all demo addresses verified
 
 #### Sunny — Backend (agent core + routing)
