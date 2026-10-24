@@ -86,7 +86,11 @@ function LastAction({ kind, at, body, error }) {
   const sent = alerts.filter((a) => a.action === 'sent' || a.action === 'resent').length
   const lines = [
     `${label} at ${clockSeconds(at)}: systems ${body.status}.`,
-    kind === 'outage' && alerts.length ? `Alert agent: ${sent} of ${alerts.length} nurses emailed.` : null,
+    kind === 'outage' && alerts.length
+      ? isMock
+        ? `Alert agent: ${alerts.length} nurses would be emailed. Mock mode sends no email.`
+        : `Alert agent: ${sent} of ${alerts.length} nurses emailed (or logged, if the server is in NOTIFY_DRY_RUN).`
+      : null,
     body.alerts_error ? `Alert agent failed: ${body.alerts_error}` : null,
     body.routing ? `Routing agent: scan ran (${body.routing.event_type}).` : null,
     body.routing_error ? `Routing agent failed: ${body.routing_error}` : null,
