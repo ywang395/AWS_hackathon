@@ -87,19 +87,27 @@ def _message_problem(to: Any, subject: Any, body: Any) -> str | None:
     return None
 
 
-def send_email(to: str, subject: str, body: str, *, client: Any | None = None) -> NotifyResult:
+def send_email(
+    to: str,
+    subject: str,
+    body: str,
+    *,
+    client: Any | None = None,
+    dry_run: bool | None = None,
+) -> NotifyResult:
     """Send one plain-text email through SES v2, or log it when dry-run is on.
 
     Never raises: invalid input, missing configuration and SES failures all
     come back as status "error" with the reason in `error`. `client` takes
-    an injected sesv2 client (tests); otherwise one is built.
+    an injected sesv2 client (tests); otherwise one is built. `dry_run`
+    overrides NOTIFY_DRY_RUN for this one message (None = use the env var).
     """
     problem = _message_problem(to, subject, body)
     if problem:
         return _failed(str(to), str(subject), problem)
     to, subject = to.strip(), subject.strip()
 
-    if dry_run_enabled():
+    if dry_run if dry_run is not None else dry_run_enabled():
         result = NotifyResult(to=to, subject=subject, status="dry_run", delivered_to=to)
         _log(result, body=body)
         return result
