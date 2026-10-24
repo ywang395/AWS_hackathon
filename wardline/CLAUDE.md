@@ -210,9 +210,9 @@ Phase 1 (start now)
 - [x] `shared/events.py`: `put_event()` with `DRY_RUN` print mode
 - [x] `tools/stock.py`: `find_stock(med)` reading local `inventory.json` (own 5-line fixture until Alisher's lands)
 - [x] `tools/deliveries.py`: `create_delivery()` with `request_id` dedupe, in-memory store
-- [ ] `tools/escalation.py`: `escalate()` → memory + feed
-- [ ] `routing_agent/prompt.md`
-- [ ] `routing_agent/app.py`: handles `MedRequested` + scan event, runnable locally with fake client
+- [x] `tools/escalation.py`: `escalate()` → memory + feed
+- [x] `routing_agent/prompt.md`
+- [x] `routing_agent/app.py`: handles `MedRequested` + scan event, runnable locally with fake client
 
 Phase 2 (after Lin's Bedrock access + Alisher's seed data)
 - [ ] Swap fake client for real Bedrock; test routing agent live
