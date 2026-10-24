@@ -53,13 +53,13 @@ def test_empty_message_returns_the_brief_for_own_patients_only(env):
     deps = env.deps()
     response = nurse.handle_chat({"token": env.token(), "pin": "1234", "message": ""}, deps)
 
-    assert [b["room"] for b in response["brief"]] == ["301", "302", "303", "304"]
+    assert [b["room"] for b in response["brief"]] == ["305", "306", "307", "308"]
     assert {p["assigned_nurse_id"] for p in response["patients"]} == {"N002"}
     assert response["snapshot_ts"] == "2024-01-15T02:05:00Z"
     assert "Records as of 02:05 UTC" in response["reply"]
-    room_304 = next(b for b in response["brief"] if b["room"] == "304")
-    assert room_304["allergies"] == ["Penicillin"]
-    assert room_304["critical_meds"] == ["Insulin"]
+    room_308 = next(b for b in response["brief"] if b["room"] == "308")
+    assert room_308["allergies"] == ["Codeine"]
+    assert room_308["critical_meds"] == ["Warfarin"]
     assert env.acks == ["N002"]  # opening the link acknowledged the alert
     assert deps.bedrock_client.requests == []  # the brief never calls the model
 
@@ -86,7 +86,7 @@ def test_missing_fields_are_400(env):
 
 
 def test_deliveries_are_filtered_to_own_rooms(env):
-    rows = [{"request_id": "a", "to_room": "304"}, {"request_id": "b", "to_room": "305"}]
+    rows = [{"request_id": "a", "to_room": "305"}, {"request_id": "b", "to_room": "309"}]
     response = nurse.handle_chat({"token": env.token(), "pin": "1234", "message": ""}, env.deps(delivery_rows=rows))
     assert [d["request_id"] for d in response["deliveries"]] == ["a"]
 
@@ -94,22 +94,22 @@ def test_deliveries_are_filtered_to_own_rooms(env):
 def test_request_med_publishes_med_requested_with_the_delivery_request_id(env):
     tools = nurse.build_tool_impls("N002", env.deps())
 
-    result = tools["request_med"](room="304", med="insulin")
+    result = tools["request_med"](room="308", med="warfarin")
 
     assert result["status"] == "requested"
     (detail_type, source, detail), = env.events
     assert (detail_type, source) == ("MedRequested", "nurse_agent")
     assert set(detail) == {"request_id", "room", "med", "requested_by"}  # section 6 detail shape
     assert detail["requested_by"] == "N002"  # bound in code, not chosen by the model
-    assert detail["request_id"] == deliveries.build_request_id("304", "Insulin", "2024-01-15T02:20:00Z")
-    assert detail["request_id"] == "304-insulin-2024-01-15T02:20:00Z"
+    assert detail["request_id"] == deliveries.build_request_id("308", "Warfarin", "2024-01-15T03:30:00Z")
+    assert detail["request_id"] == "308-warfarin-2024-01-15T03:30:00Z"
 
 
 def test_request_med_refuses_other_rooms_and_unordered_meds(env):
     tools = nurse.build_tool_impls("N002", env.deps())
     with pytest.raises(PatientAccessDenied):
-        tools["request_med"](room="305", med="Amlodipine")
-    assert tools["request_med"](room="304", med="Heparin")["status"] == "not_in_record"
+        tools["request_med"](room="309", med="Amlodipine")
+    assert tools["request_med"](room="305", med="Heparin")["status"] == "not_in_record"
     assert env.events == []
 
 
@@ -122,21 +122,21 @@ def test_tool_specs_match_impls_and_never_take_a_nurse_id(env):
 def test_model_cannot_slip_in_a_nurse_id(env):
     tools = nurse.build_tool_impls("N002", env.deps())
     with pytest.raises(TypeError):
-        tools["get_patient"](room="305", nurse_id="N003")
+        tools["get_patient"](room="309", nurse_id="N003")
 
 
 def test_chat_reply_always_carries_the_snapshot_time_and_keeps_history(env):
-    deps = env.deps(responses=[final_text("Room 304 is allergic to penicillin."), final_text("Yes.")])
+    deps = env.deps(responses=[final_text("Room 308 is allergic to codeine."), final_text("Yes.")])
     token = env.token()
 
-    first = nurse.handle_chat({"token": token, "pin": "1234", "message": "Allergies in 304?"}, deps)
+    first = nurse.handle_chat({"token": token, "pin": "1234", "message": "Allergies in 308?"}, deps)
     nurse.handle_chat({"token": token, "pin": "1234", "message": "Anything else?"}, deps)
 
     assert first["reply"].endswith("(Records as of 02:05 UTC)")  # appended by code
     assert "brief" not in first
     second_prompt = deps.bedrock_client.requests[1]["messages"][0]["content"][0]["text"]
     assert "Earlier in this conversation:" in second_prompt
-    assert "Allergies in 304?" in second_prompt
+    assert "Allergies in 308?" in second_prompt
     assert "02:05 UTC" in deps.bedrock_client.requests[0]["system"][0]["text"]
 
 

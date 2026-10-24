@@ -60,9 +60,9 @@ def verify() -> int:
     check("DATA_BACKEND resolves to dynamodb", db.use_dynamodb())
 
     # Patients come back scoped to the nurse, through the GSI.
-    kim_patients = get_my_patients("N002")
+    n002_patients = get_my_patients("N002")
     check("get_my_patients('N002') returns 4 seeded rooms",
-          sorted(p["room"] for p in kim_patients) == ["301", "302", "303", "304"])
+          sorted(p["room"] for p in n002_patients) == ["305", "306", "307", "308"])
 
     # Float survived the Decimal round-trip (the seed's main risk).
     p304 = db.get_item("patients", patient_id="P304")
@@ -70,10 +70,10 @@ def verify() -> int:
 
     # Ownership check still refuses another nurse's room.
     try:
-        get_patient("N002", "305")
-        check("room 305 refused to N002", False)
+        get_patient("N002", "309")
+        check("room 309 refused to N002", False)
     except PatientAccessDenied:
-        check("room 305 refused to N002", True)
+        check("room 309 refused to N002", True)
 
     # Token mint + PIN verify both go through DynamoDB (then clean up the test token).
     token = auth.create_token("N002")
