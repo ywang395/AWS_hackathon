@@ -232,9 +232,7 @@ Resources:
       EventPattern:
         source: [control]
         detail-type: [OutageDetected]
-      Targets:
-        - Id: placeholder
-          Arn: !GetAtt PlaceholderFunction.Arn
+      # Phase 2: add Target -> alert_agent + routing_agent Lambdas
 
   MedRequestedRule:
     Type: AWS::Events::Rule
@@ -243,9 +241,7 @@ Resources:
       EventPattern:
         source: [nurse_agent]
         detail-type: [MedRequested]
-      Targets:
-        - Id: placeholder
-          Arn: !GetAtt PlaceholderFunction.Arn
+      # Phase 2: add Target -> routing_agent Lambda
 
   EscalationNeededRule:
     Type: AWS::Events::Rule
@@ -254,9 +250,7 @@ Resources:
       EventPattern:
         source: [routing_agent, alert_agent]
         detail-type: [EscalationNeeded]
-      Targets:
-        - Id: placeholder
-          Arn: !GetAtt PlaceholderFunction.Arn
+      # Phase 2: add Target -> alert_agent Lambda
 
   AckCheckRule:
     Type: AWS::Events::Rule
@@ -265,9 +259,7 @@ Resources:
       EventPattern:
         source: [scheduler]
         detail-type: [AckCheck]
-      Targets:
-        - Id: placeholder
-          Arn: !GetAtt PlaceholderFunction.Arn
+      # Phase 2: add Target -> alert_agent Lambda
 
   SystemRestoredRule:
     Type: AWS::Events::Rule
@@ -276,103 +268,33 @@ Resources:
       EventPattern:
         source: [control]
         detail-type: [SystemRestored]
-      Targets:
-        - Id: placeholder
-          Arn: !GetAtt PlaceholderFunction.Arn
-
-  # Allow EventBridge to invoke the placeholder target.
-  PlaceholderEventPermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      FunctionName: !Ref PlaceholderFunction
-      Action: lambda:InvokeFunction
-      Principal: events.amazonaws.com
-      SourceArn: !Sub "arn:aws:events:${AWS::Region}:${AWS::AccountId}:rule/${WardlineBus.Name}/*"
+      # Phase 2: add Target -> recovery_agent Lambda
 
   # ---------------------------------------------------------------------------
-  # Placeholder Lambda — single stub wired to every API route and EventBridge
-  # rule so the Phase 1 stack deploys and responds. Replaced per-route/per-agent
-  # in Phase 2.
-  # ---------------------------------------------------------------------------
-
-  PlaceholderFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      FunctionName: wardline-placeholder
-      Handler: index.handler
-      InlineCode: |
-        import json
-
-        def handler(event, context):
-            # Phase 1 stub: proves the route/rule is wired. Replaced in Phase 2.
-            return {
-                "statusCode": 200,
-                "headers": {"Content-Type": "application/json"},
-                "body": json.dumps({"ok": True, "message": "wardline placeholder"}),
-            }
-
-  # ---------------------------------------------------------------------------
-  # HTTP API (§7) with CORS + placeholder routes.
+  # HTTP API (§7) with CORS. Routes/integrations are added in Phase 2 when the
+  # real Lambdas exist — this workshop account forbids iam:CreateRole, so no
+  # Lambda (and thus no execution role) is created in the Phase 1 skeleton.
+  # The §7 routes are documented in CLAUDE.md and wired in Phase 2:
+  #   POST /chat, GET /dashboard, POST /control/outage, POST /control/restore,
+  #   POST /deliveries/{id}/done
   # ---------------------------------------------------------------------------
 
   HttpApi:
-    Type: AWS::Serverless::HttpApi
+    Type: AWS::ApiGatewayV2::Api
     Properties:
-      StageName: "$default"
+      Name: wardline-http-api
+      ProtocolType: HTTP
       CorsConfiguration:
         AllowOrigins: ["*"]
         AllowHeaders: ["*"]
         AllowMethods: ["GET", "POST", "OPTIONS"]
 
-  ChatRoutePermission:
-    Type: AWS::Lambda::Permission
+  HttpApiStage:
+    Type: AWS::ApiGatewayV2::Stage
     Properties:
-      FunctionName: !Ref PlaceholderFunction
-      Action: lambda:InvokeFunction
-      Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*"
-
-  ChatRoute:
-    Type: AWS::Serverless::Function
-    Properties:
-      FunctionName: wardline-route-chat
-      Handler: index.handler
-      InlineCode: |
-        import json
-        def handler(event, context):
-            return {"statusCode": 200, "headers": {"Content-Type": "application/json"},
-                    "body": json.dumps({"ok": True, "route": "placeholder"})}
-      Events:
-        Chat:
-          Type: HttpApi
-          Properties:
-            ApiId: !Ref HttpApi
-            Path: /chat
-            Method: POST
-        Dashboard:
-          Type: HttpApi
-          Properties:
-            ApiId: !Ref HttpApi
-            Path: /dashboard
-            Method: GET
-        ControlOutage:
-          Type: HttpApi
-          Properties:
-            ApiId: !Ref HttpApi
-            Path: /control/outage
-            Method: POST
-        ControlRestore:
-          Type: HttpApi
-          Properties:
-            ApiId: !Ref HttpApi
-            Path: /control/restore
-            Method: POST
-        DeliveryDone:
-          Type: HttpApi
-          Properties:
-            ApiId: !Ref HttpApi
-            Path: /deliveries/{id}/done
-            Method: POST
+      ApiId: !Ref HttpApi
+      StageName: "$default"
+      AutoDeploy: true
 
   # ---------------------------------------------------------------------------
   # S3 static website hosting for the React/Vite frontend build.
