@@ -29,10 +29,9 @@ Wardline supports the hospital's downtime procedures (paper MAR stays the offici
 
 ## 3. Stack
 
-> **⚠️ OPEN — COMPUTE NEEDS A TEAM DECISION (not yet decided).** The provided workshop account (`580066280520`) **cannot run Lambda** — IAM is locked down (`iam:CreateRole` and `iam:PassRole` both denied; the only usable identity, `WSParticipantRole`, is not trusted by the Lambda service). This is confirmed and not fixable without operator access. All other AWS services work in-account (DynamoDB, Bedrock, SES, EventBridge, S3). **The team must pick where the backend runs** — options below. The §7 API contract and the agent/tool code do NOT need to change under any option; only the hosting/entry point does.
+> **✅ COMPUTE DECIDED (team): FastAPI/Flask server on EC2. NO Lambda, NO API Gateway.** The workshop account (`580066280520`) **cannot run Lambda** — IAM is locked down (`iam:CreateRole` and `iam:PassRole` both denied; `WSParticipantRole` is not trusted by the Lambda service). **EC2 is verified working** — a test `t3.micro` was launched to `running` and torn down. So the backend runs as one FastAPI/Flask process on EC2, in the same account as the live DynamoDB/Bedrock/SES/EventBridge. Handlers become server routes; EventBridge-triggered agents become in-process calls + a background scheduler thread. The §7 API contract and the agent/tool code do NOT change — only the host/entry point.
 >
-> **Proposed option (Lin's recommendation, pending team sign-off):** run the backend as a single FastAPI/Flask server on **EC2** (EC2 launch is verified available in this account). Handlers become server routes; EventBridge-triggered agents become in-process calls + a background scheduler thread.
-> **Alternatives to weigh:** (b) deploy Lambdas in a different AWS account someone controls (but the data/Bedrock access live here), (c) run the server locally for the demo (zero AWS compute perms needed). **Decide as a team before any compute work starts.** The stack table / repo / Phase 2 items below describe the EC2 proposal and are provisional until confirmed.
+> **EC2 gotchas (no IAM roles in this account):** the instance gets **no IAM instance profile** (can't create/pass roles). The server reads AWS credentials from env vars (the participant temp creds) instead — **these expire, so refresh them on the instance when a session lapses.** The public IP changes on stop/start, so don't stop the instance mid-demo. The account is event-ephemeral; keep a **local-run fallback** ready (same server, pointed at the live tables) in case the account is reclaimed.
 
 | Layer | Choice |
 |---|---|
@@ -199,17 +198,19 @@ Phase 1 (start now)
 > - Frontend URL: `http://wardline-frontend-580066280520.s3-website-us-east-1.amazonaws.com`
 > - SES verified sender: `lintuwun@gmail.com` (recipients must also be SES-verified while in sandbox)
 
-Phase 2 (after backend pushes code) — **GATED on the compute decision (§3). Lambda is NOT available.**
-- [ ] **DECIDE AS A TEAM: where does the backend run?** Lambda is confirmed impossible in this account. Options: (a) FastAPI/Flask on EC2 [Lin's proposal], (b) Lambdas in a different AWS account, (c) run the server locally for the demo. Nothing below starts until this is settled.
-- [ ] (if option a/EC2) Launch EC2 (t3.micro/small, default VPC, Amazon Linux 2023), SG open for the server port
-- [ ] (if server) Stand up one FastAPI/Flask app exposing the §7 routes (`/chat`, `/dashboard`, `/control/outage`, `/control/restore`, `/deliveries/{id}/done`), CORS enabled
-- [ ] (if server) Mount backend handlers as routes — same code, server entry point instead of Lambda handler
-- [ ] (if server) Replace EventBridge-triggered agents with in-process calls; run the 5-min routing scan + ack checks as a background scheduler thread (APScheduler)
+Phase 2 (after backend pushes code) — **compute = FastAPI/Flask on EC2 (§3). Lambda is NOT available.**
+- [x] **Compute decided: EC2 server** (Lambda impossible; EC2 launch verified). See §3 banner.
+- [x] Switch tools JSON → DynamoDB + seed live tables — done via `scripts/go_live_dynamodb.py`; read-back checks all pass (12 nurses / 16 patients / 25 inventory live in `us-east-1`).
+- [ ] Launch EC2 (t3.small, default VPC `vpc-08bb470f1b40c6636`, subnet `subnet-0297a1b1ba5f29a20`, Amazon Linux 2023 `ami-08c46876c64a927b8`), SG open for the server port (+ SSH or SSM)
+- [ ] `backend/server.py`: one FastAPI/Flask app exposing the §7 routes (`/chat`, `/dashboard`, `/control/outage`, `/control/restore`, `/deliveries/{id}/done`), CORS enabled
+- [ ] Mount backend handlers as routes — same code, server entry point instead of Lambda handler
+- [ ] Replace EventBridge-triggered agents with in-process calls; run the 5-min routing scan + ack checks as a background scheduler thread (APScheduler)
 - [ ] `/control/outage` + `/control/restore` → put_events on the `wardline` bus (kept for the feed/story) AND trigger the agent in-process
 - [ ] `/dashboard` route (reads tables, returns §7 shape)
-- [ ] Backend credentials to reach DynamoDB/Bedrock/SES (env creds / instance access)
-- [ ] Deploy frontend build to S3; point `VITE_API_URL` at the chosen backend URL
-- [ ] Logs; end-to-end flow test
+- [ ] Credentials on EC2: participant temp creds as env vars (no instance profile — see §3 gotchas); refresh on expiry
+- [ ] Deploy frontend build to S3; point `VITE_API_URL` at the EC2 public URL
+- [ ] Logs (server stdout); end-to-end flow test
+- [ ] Keep a local-run fallback (same server, live tables) in case the account is reclaimed
 - [ ] (If time) request SES production access to email unverified addresses; else keep all demo addresses verified
 
 #### Sunny — Backend (agent core + routing)
