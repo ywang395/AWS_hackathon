@@ -58,7 +58,7 @@ const PATIENTS = [
 
 let memory = null
 
-const fresh = () => ({ status: 'up', outageAt: null, restoredAt: null, anchor: Date.now(), acked: false, chat: [], logged: [], delivered: {}, requested: [] })
+const fresh = () => ({ status: 'up', outageAt: null, restoredAt: null, anchor: Date.now(), acked: false, chat: [], logged: [], delivered: {}, requested: [], resolvedEscalations: [] })
 
 function load() {
   try {
@@ -181,7 +181,9 @@ function dashboard() {
       name: n.name,
       acked: Boolean(s.outageAt) && (n.nurse_id === ME ? s.acked : now >= n.acksAfter),
     })),
-    escalations: scripted.escalations.filter((e) => e.at <= now).map(({ at: _at, ...e }) => e),
+    escalations: scripted.escalations
+      .filter((e) => e.at <= now && !(s.resolvedEscalations || []).includes(e.escalation_id))
+      .map(({ at: _at, ...e }) => e),
     deliveries: deliveries(s),
     feed,
   }
@@ -203,6 +205,16 @@ function restore() {
   const restoredAt = Date.now()
   save({ ...s, status: 'up', restoredAt: s.outageAt ? restoredAt : null })
   return { status: 'up', restored_at: isoSeconds(restoredAt) }
+}
+
+function resolveEscalation(id) {
+  const s = load()
+  const item = s.outageAt ? script(s).escalations.find((e) => e.escalation_id === id) : null
+  if (!item) return [404, { error: `Escalation '${id}' not found` }]
+  s.resolvedEscalations = [...new Set([...(s.resolvedEscalations || []), id])]
+  save(s)
+  const { at: _at, ...record } = item
+  return [200, { ...record, resolved: true, resolved_at: isoSeconds(Date.now()) }]
 }
 
 function done(id) {
@@ -376,6 +388,9 @@ export async function mockRequest(method, path, body) {
   } else if (route === 'POST /control/restore') {
     await wait(300)
     out = restore()
+  } else if (method === 'POST' && /^\/escalations\/[^/]+\/resolve$/.test(path)) {
+    await wait(250)
+    ;[status, out] = resolveEscalation(decodeURIComponent(path.split('/')[2]))
   } else if (method === 'POST' && /^\/deliveries\/[^/]+\/done$/.test(path)) {
     await wait(250)
     ;[status, out] = done(decodeURIComponent(path.split('/')[2]))

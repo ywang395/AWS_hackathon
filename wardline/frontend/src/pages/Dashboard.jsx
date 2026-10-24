@@ -7,7 +7,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import Shell from '../components/Shell.jsx'
 import Icon from '../components/Icon.jsx'
 import DeliveryPill from '../components/DeliveryPill.jsx'
-import { getDashboard, isMock, markDelivered } from '../api.js'
+import { getDashboard, isMock, markDelivered, resolveEscalation } from '../api.js'
 import { useNow, usePoll } from '../lib/hooks.js'
 import { age, clock, clockSeconds, duration, isOverdue, localizeTimes, parseTs, plural, relative, runnerName } from '../lib/format.js'
 import { agentLabel, cleanReply, describeStep, groupRuns, hasEscalation, runnerNames } from '../lib/feed.js'
@@ -38,7 +38,7 @@ export default function Dashboard() {
         </div>
         <Freshness updatedAt={updatedAt} error={error} onRetry={refresh} />
       </header>
-      <EscalationsPanel items={data?.escalations} down={down} now={now} />
+      <EscalationsPanel items={data?.escalations} down={down} now={now} onChange={refresh} />
       <div className="board">
         <FeedPanel runs={runs} names={names} loading={!data && !error} failed={!data && error} working={down && !error} offline={Boolean(error)} />
         <div className="side">
@@ -55,8 +55,9 @@ function finding({ system, staff = [], escalations = [], deliveries = [] }) {
   if (system?.status !== 'down') return 'Hospital systems are up. Wardline will alert every on-shift nurse if they go down.'
   const acked = staff.filter((s) => s.acked).length
   const moving = deliveries.filter((d) => d.status !== 'delivered').length
+  const recentEscalations = Math.min(escalations.length, RECENT_ESCALATION_LIMIT)
   return [
-    escalations.length ? `${plural(escalations.length, 'escalation')} ${escalations.length === 1 ? 'needs' : 'need'} a human` : 'Nothing needs a human yet',
+    recentEscalations ? `${plural(recentEscalations, 'recent escalation')} ${recentEscalations === 1 ? 'needs' : 'need'} a human` : 'Nothing needs a human yet',
     `${acked} of ${staff.length} nurses confirmed`,
     `${plural(moving, 'delivery', 'deliveries')} under way`,
   ].join(' · ')
@@ -253,13 +254,48 @@ function Step({ text, result, tone, at }) {
 // Right column
 // ---------------------------------------------------------------------------
 
-function EscalationsPanel({ items, down, now }) {
-  const list = [...(items || [])].sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)))
+const RECENT_ESCALATION_LIMIT = 4
+
+function EscalationsPanel({ items, down, now, onChange }) {
+  const [view, setView] = useState('log')
+  const [resolving, setResolving] = useState(() => new Set())
+  const [resolveError, setResolveError] = useState('')
+  const list = [...(items || [])].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))
+  const shown = list.slice(0, RECENT_ESCALATION_LIMIT)
+
+  const markHandled = async (id) => {
+    setResolveError('')
+    setResolving((current) => new Set(current).add(id))
+    try {
+      await resolveEscalation(id)
+      await onChange?.()
+    } catch (error) {
+      setResolveError(error.message || 'Couldn’t mark that escalation handled.')
+    } finally {
+      setResolving((current) => { const next = new Set(current); next.delete(id); return next })
+    }
+  }
+
   return (
     <section className={`panel escalations${list.length ? ' has-open' : ''}`} aria-labelledby="esc-title">
-      <header>
-        <h2 id="esc-title">Needs a human</h2>
-        {list.length > 0 && <span className="lead num">{list.length} open</span>}
+      <header className="escalations-header">
+        <div className="escalations-title">
+          <h2 id="esc-title">Needs a human</h2>
+          {shown.length > 0 && <span className="meta">{shown.length} most recent</span>}
+        </div>
+        <div className="view-switch" role="group" aria-label="Human escalation view">
+          {['log', 'cards'].map((option) => (
+            <button
+              key={option}
+              type="button"
+              className="view-option"
+              aria-pressed={view === option}
+              onClick={() => setView(option)}
+            >
+              {option === 'log' ? 'Log' : 'Cards'}
+            </button>
+          ))}
+        </div>
       </header>
       {!items && <SkeletonRows count={1} />}
       {items && !list.length && (
@@ -267,18 +303,29 @@ function EscalationsPanel({ items, down, now }) {
           <Icon name="check" size={16} /> {down ? 'Nothing right now. The agents are handling every dose so far.' : 'Nothing. Systems are up.'}
         </p>
       )}
-      <ul className="esc-list">
-        {list.map((e) => (
-          <li key={e.escalation_id} className="esc">
-            <Icon name="escalate" className="neg" />
-            <div>
-              <p className="esc-reason">{localizeTimes(e.reason, e.created_at)}</p>
-              <p className="row-meta num">
-                {[e.room && `Room ${e.room}`, agentLabel(e.source_agent), `${clock(e.created_at)}${relative(e.created_at, now) ? ` (${relative(e.created_at, now)})` : ''}`].filter(Boolean).join(' · ')}
-              </p>
-            </div>
-          </li>
-        ))}
+      {resolveError && <p className="row-meta neg" role="alert">{resolveError}</p>}
+      <ul className={`esc-list esc-list-${view}`} aria-label={`${shown.length} most recent unresolved escalations`}>
+        {shown.map((e) => {
+          const pending = resolving.has(e.escalation_id)
+          return (
+            <li key={e.escalation_id} className={`esc${pending ? ' esc-resolving' : ''}`}>
+              <input
+                type="checkbox"
+                className="esc-check"
+                checked={pending}
+                disabled={pending}
+                aria-label={`Mark room ${e.room || 'unknown'} escalation handled`}
+                onChange={() => markHandled(e.escalation_id)}
+              />
+              <div className="esc-content">
+                <p className="esc-reason">{localizeTimes(e.reason, e.created_at)}</p>
+                <p className="row-meta num">
+                  {[e.room && `Room ${e.room}`, agentLabel(e.source_agent), `${clock(e.created_at)}${relative(e.created_at, now) ? ` (${relative(e.created_at, now)})` : ''}`].filter(Boolean).join(' · ')}
+                </p>
+              </div>
+            </li>
+          )
+        })}
       </ul>
     </section>
   )

@@ -211,6 +211,18 @@ def _fan_out_outage(started_at: str) -> dict[str, Any]:
     return outcomes
 
 
+@app.post("/escalations/{escalation_id}/resolve")
+def escalation_resolve(escalation_id: str) -> JSONResponse:
+    """Mark a human escalation handled so it leaves the open checklist."""
+    from backend.tools import escalation
+
+    try:
+        updated = escalation.resolve_escalation(escalation_id)
+    except escalation.EscalationError as exc:
+        return JSONResponse(status_code=404, content={"error": str(exc)})
+    return JSONResponse(status_code=200, content=json.loads(json.dumps(updated, default=str)))
+
+
 # ---------------------------------------------------------------------------
 # POST /deliveries/{request_id}/done
 # ---------------------------------------------------------------------------

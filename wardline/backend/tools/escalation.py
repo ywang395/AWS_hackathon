@@ -60,6 +60,24 @@ def get_escalation(escalation_id: str) -> dict[str, Any] | None:
         return dict(record) if record is not None else None
 
 
+def resolve_escalation(escalation_id: str) -> dict[str, Any]:
+    """Mark one escalation handled by a human.
+
+    Idempotent: resolving an already-resolved escalation returns it unchanged.
+    The dashboard excludes resolved records from "Needs a human".
+    """
+
+    normalized = _require_non_empty_string(escalation_id, field="escalation_id")
+    with _STORE_LOCK:
+        record = _ESCALATION_STORE.get(normalized)
+        if record is None:
+            raise EscalationError(f"Unknown escalation '{normalized}'.")
+        if not record.get("resolved"):
+            record["resolved"] = True
+            record["resolved_at"] = _utc_timestamp()
+        return dict(record)
+
+
 def escalate(
     source_agent: str,
     reason: str,
