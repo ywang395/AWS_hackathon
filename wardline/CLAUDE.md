@@ -192,10 +192,10 @@ Phase 2 (after backend pushes code)
 
 #### Sunny — Backend (agent core + routing)
 Phase 1 (start now)
-- [ ] `shared/agent_loop.py`: Converse tool-use loop with `max_steps` + AgentFeed logging behind an interface
-- [ ] Unit test the loop with a **fake Bedrock client** (canned `tool_use` → `end_turn`) — no AWS needed
-- [ ] `shared/events.py`: `put_event()` with `DRY_RUN` print mode
-- [ ] `tools/stock.py`: `find_stock(med)` reading local `inventory.json` (own 5-line fixture until Alisher's lands)
+- [x] `shared/agent_loop.py`: Converse tool-use loop with `max_steps` + AgentFeed logging behind an interface
+- [x] Unit test the loop with a **fake Bedrock client** (canned `tool_use` → `end_turn`) — no AWS needed
+- [x] `shared/events.py`: `put_event()` with `DRY_RUN` print mode
+- [x] `tools/stock.py`: `find_stock(med)` reading local `inventory.json` (own 5-line fixture until Alisher's lands)
 - [ ] `tools/deliveries.py`: `create_delivery()` with `request_id` dedupe, in-memory store
 - [ ] `tools/escalation.py`: `escalate()` → memory + feed
 - [ ] `routing_agent/prompt.md`
