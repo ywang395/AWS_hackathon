@@ -10,7 +10,7 @@ import DeliveryPill from '../components/DeliveryPill.jsx'
 import { getDashboard, isMock, markDelivered } from '../api.js'
 import { useNow, usePoll } from '../lib/hooks.js'
 import { age, clock, clockSeconds, duration, isOverdue, localizeTimes, parseTs, plural, relative, runnerName } from '../lib/format.js'
-import { agentLabel, describeStep, groupRuns, hasEscalation, runnerNames } from '../lib/feed.js'
+import { agentLabel, cleanReply, describeStep, groupRuns, hasEscalation, runnerNames } from '../lib/feed.js'
 
 export default function Dashboard() {
   const { data, error, updatedAt, refresh } = usePoll(getDashboard, 3000)
@@ -197,7 +197,9 @@ function Run({ run, names, isNew, opened, onToggle }) {
             {described.map((d) => <li key={d.id}><Step {...d} at={run.started} /></li>)}
           </ol>
         )}
-        {run.reply && <p className="run-reply">{localizeTimes(run.reply, run.started)}</p>}
+        {run.reply && cleanReply(run.reply).map((line, i) => (
+          <p key={i} className="run-reply">{localizeTimes(line, run.started)}</p>
+        ))}
         {!notable && run.steps.length > 0 && (
           <button type="button" className="text-btn run-toggle" aria-expanded={open} aria-controls={`steps-${run.id}`} onClick={onToggle}>
             {open ? 'Hide steps' : `Show ${plural(run.steps.length, 'step')}`}

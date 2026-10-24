@@ -67,6 +67,21 @@ export const DELIVERY_STATUS = {
   delivered: 'Delivered',
 }
 
+// Agent replies are plain text, but the model sometimes slips in markdown
+// (**bold**, `code`, # headings, - bullets). The UI renders replies as plain
+// text, so those markers show as literal junk. Strip them for a clean read.
+export function stripMarkdown(text = '') {
+  return String(text)
+    .replace(/`([^`]*)`/g, '$1')        // `code` -> code
+    .replace(/\*\*([^*]+)\*\*/g, '$1')  // **bold** -> bold
+    .replace(/\*([^*]+)\*/g, '$1')      // *italic* -> italic
+    .replace(/__([^_]+)__/g, '$1')      // __bold__ -> bold
+    .replace(/^#{1,6}\s+/gm, '')        // headings
+    .replace(/^\s*[-•]\s+/gm, '')       // bullet markers
+    .replace(/[*_`#>]/g, '')            // any stray markers
+    .trimEnd()
+}
+
 // Agent replies quote times as ISO strings or as "HH:MM UTC" (nurse_agent _display_ts).
 // Rewrite both in local time so one screen never mixes two clocks. `ref` dates the HH:MM form.
 export function localizeTimes(text, ref) {
