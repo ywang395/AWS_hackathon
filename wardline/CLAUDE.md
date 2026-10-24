@@ -191,7 +191,8 @@ Phase 1 (start now)
 
 > **Deployed resources (share these):**
 > - Region: `us-east-1`
-> - **Live backend API (EC2): `http://32.192.240.107:8000`** ← point `VITE_API_URL` here. IP changes on instance stop/start.
+> - **Live backend API (EC2): `http://32.192.240.107:8000`**. IP changes on instance stop/start; the frontend reads it from `config.js` in the bucket, so edit that one file (no rebuild).
+> - **Live frontend (S3): `http://wardline-frontend-580066280520.s3-website-us-east-1.amazonaws.com`** — `/dashboard`, `/control`, `/nurse?token=…`. Must stay **http**: the API is http, so an https page would be blocked from calling it (mixed content). Deep links return status 404 with the app HTML (S3 SPA fallback); browsers render them normally.
 > - (Unused) HTTP API GW base URL from the empty skeleton: `https://6haxdip6xj.execute-api.us-east-1.amazonaws.com` — no routes; backend is the EC2 server, not API Gateway.
 > - EventBridge bus: `wardline`
 > - DynamoDB tables: `Nurses`, `Patients`, `Inventory`, `Deliveries`, `DowntimeLog`, `Tokens`, `Alerts`, `Escalations`, `AgentFeed`, `ChatHistory`, `SystemState`
@@ -211,7 +212,8 @@ Phase 2 (after backend pushes code) — **compute = FastAPI/Flask on EC2 (§3). 
 - [ ] `/control/outage` + `/control/restore` → put_events on the `wardline` bus (kept for the feed/story) AND trigger the agent in-process
 - [ ] `/dashboard` route (reads tables, returns §7 shape)
 - [ ] Credentials on EC2: participant temp creds as env vars (no instance profile — see §3 gotchas); refresh on expiry
-- [ ] Deploy frontend build to S3; point `VITE_API_URL` at the EC2 public URL
+- [x] Deploy frontend build to S3 — `npm run build`, then upload `dist/` (`index.html` + `config.js` with `Cache-Control: no-cache`, hashed `assets/` cached long-term). API address comes from `config.js`.
+- [x] End-to-end test through the live stack (EC2 + DynamoDB + Bedrock + SES): outage → 4 alert emails + runner email, insulin routed, heparin escalated, nurse PIN login, scoped brief, Bedrock Q&A, other-nurse refusal, double-dose STOP, ack on dashboard, delivery done, restore. Live feed needs `AGENT_FEED_TABLE=AgentFeed` in the server env (now set by `deploy/refresh_creds.sh`).
 - [ ] Logs (server stdout); end-to-end flow test
 - [ ] Keep a local-run fallback (same server, live tables) in case the account is reclaimed
 - [ ] (If time) request SES production access to email unverified addresses; else keep all demo addresses verified
@@ -265,9 +267,9 @@ Phase 1 (start now)
 - [x] Make the agent feed look impressive — it's the demo centerpiece
 
 Phase 2 (after Lin's API URL)
-- [ ] Mock mode off; connect to real API
+- [x] Mock mode off; connect to real API (production build talks to the EC2 API via `config.js`)
 - [x] Loading, error, expired-link states
-- [ ] Build `dist/` → hand to Lin for S3
+- [x] Build `dist/` → deployed to S3 by Lin
 - [ ] Record backup demo video
 
 ### Cross-team handoffs (the only dependencies)
