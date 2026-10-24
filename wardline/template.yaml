@@ -1,0 +1,425 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Wardline — hospital downtime medication continuity (SpartHill Hacks 2026).
+  Phase 1 skeleton: DynamoDB tables, EventBridge bus + rules, HTTP API with CORS,
+  S3 static site. Real agent/API Lambdas are wired in Phase 2; routes and rules
+  currently point at a single placeholder Lambda so the empty stack deploys.
+
+Parameters:
+  ModelId:
+    Type: String
+    Default: us.anthropic.claude-haiku-4-5-20251001-v1:0
+    Description: Bedrock inference-profile model ID (not the bare model ID).
+  FromEmail:
+    Type: String
+    Default: lintuwun@gmail.com
+    Description: SES-verified sender address for outbound email notifications.
+  NotifyDryRun:
+    Type: String
+    Default: "1"
+    AllowedValues: ["0", "1"]
+    Description: When 1, notify.py logs instead of sending email.
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Timeout: 60
+    MemorySize: 512
+    Architectures: [x86_64]
+    Environment:
+      Variables:
+        EVENT_BUS_NAME: !Ref WardlineBus
+        MODEL_ID: !Ref ModelId
+        FROM_EMAIL: !Ref FromEmail
+        NOTIFY_DRY_RUN: !Ref NotifyDryRun
+        NURSES_TABLE: !Ref NursesTable
+        PATIENTS_TABLE: !Ref PatientsTable
+        INVENTORY_TABLE: !Ref InventoryTable
+        DELIVERIES_TABLE: !Ref DeliveriesTable
+        DOWNTIME_LOG_TABLE: !Ref DowntimeLogTable
+        TOKENS_TABLE: !Ref TokensTable
+        ALERTS_TABLE: !Ref AlertsTable
+        ESCALATIONS_TABLE: !Ref EscalationsTable
+        AGENT_FEED_TABLE: !Ref AgentFeedTable
+        CHAT_HISTORY_TABLE: !Ref ChatHistoryTable
+        SYSTEM_STATE_TABLE: !Ref SystemStateTable
+
+Resources:
+
+  # ---------------------------------------------------------------------------
+  # DynamoDB tables (§5). On-demand billing. PK/SK per the data model.
+  # ---------------------------------------------------------------------------
+
+  NursesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: Nurses
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: nurse_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: nurse_id
+          KeyType: HASH
+
+  PatientsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: Patients
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: patient_id
+          AttributeType: S
+        - AttributeName: assigned_nurse_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: patient_id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: assigned_nurse_id-index
+          KeySchema:
+            - AttributeName: assigned_nurse_id
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+
+  InventoryTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: Inventory
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: location
+          AttributeType: S
+        - AttributeName: med
+          AttributeType: S
+      KeySchema:
+        - AttributeName: location
+          KeyType: HASH
+        - AttributeName: med
+          KeyType: RANGE
+
+  DeliveriesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: Deliveries
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: request_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: request_id
+          KeyType: HASH
+
+  DowntimeLogTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: DowntimeLog
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: patient_id
+          AttributeType: S
+        - AttributeName: ts
+          AttributeType: S
+      KeySchema:
+        - AttributeName: patient_id
+          KeyType: HASH
+        - AttributeName: ts
+          KeyType: RANGE
+
+  TokensTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: Tokens
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: token
+          AttributeType: S
+      KeySchema:
+        - AttributeName: token
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: expires_at
+        Enabled: true
+
+  AlertsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: Alerts
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: nurse_id
+          AttributeType: S
+        - AttributeName: sent_at
+          AttributeType: S
+      KeySchema:
+        - AttributeName: nurse_id
+          KeyType: HASH
+        - AttributeName: sent_at
+          KeyType: RANGE
+
+  EscalationsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: Escalations
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: escalation_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: escalation_id
+          KeyType: HASH
+
+  AgentFeedTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: AgentFeed
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: day
+          AttributeType: S
+        - AttributeName: ts
+          AttributeType: S
+      KeySchema:
+        - AttributeName: day
+          KeyType: HASH
+        - AttributeName: ts
+          KeyType: RANGE
+
+  ChatHistoryTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: ChatHistory
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: token
+          AttributeType: S
+        - AttributeName: ts
+          AttributeType: S
+      KeySchema:
+        - AttributeName: token
+          KeyType: HASH
+        - AttributeName: ts
+          KeyType: RANGE
+
+  SystemStateTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: SystemState
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+
+  # ---------------------------------------------------------------------------
+  # EventBridge custom bus + rules (§6). Targets are the placeholder Lambda in
+  # Phase 1; Phase 2 repoints each rule at the real agent function.
+  # ---------------------------------------------------------------------------
+
+  WardlineBus:
+    Type: AWS::Events::EventBus
+    Properties:
+      Name: wardline
+
+  OutageDetectedRule:
+    Type: AWS::Events::Rule
+    Properties:
+      EventBusName: !Ref WardlineBus
+      EventPattern:
+        source: [control]
+        detail-type: [OutageDetected]
+      Targets:
+        - Id: placeholder
+          Arn: !GetAtt PlaceholderFunction.Arn
+
+  MedRequestedRule:
+    Type: AWS::Events::Rule
+    Properties:
+      EventBusName: !Ref WardlineBus
+      EventPattern:
+        source: [nurse_agent]
+        detail-type: [MedRequested]
+      Targets:
+        - Id: placeholder
+          Arn: !GetAtt PlaceholderFunction.Arn
+
+  EscalationNeededRule:
+    Type: AWS::Events::Rule
+    Properties:
+      EventBusName: !Ref WardlineBus
+      EventPattern:
+        source: [routing_agent, alert_agent]
+        detail-type: [EscalationNeeded]
+      Targets:
+        - Id: placeholder
+          Arn: !GetAtt PlaceholderFunction.Arn
+
+  AckCheckRule:
+    Type: AWS::Events::Rule
+    Properties:
+      EventBusName: !Ref WardlineBus
+      EventPattern:
+        source: [scheduler]
+        detail-type: [AckCheck]
+      Targets:
+        - Id: placeholder
+          Arn: !GetAtt PlaceholderFunction.Arn
+
+  SystemRestoredRule:
+    Type: AWS::Events::Rule
+    Properties:
+      EventBusName: !Ref WardlineBus
+      EventPattern:
+        source: [control]
+        detail-type: [SystemRestored]
+      Targets:
+        - Id: placeholder
+          Arn: !GetAtt PlaceholderFunction.Arn
+
+  # Allow EventBridge to invoke the placeholder target.
+  PlaceholderEventPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref PlaceholderFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !Sub "arn:aws:events:${AWS::Region}:${AWS::AccountId}:rule/${WardlineBus.Name}/*"
+
+  # ---------------------------------------------------------------------------
+  # Placeholder Lambda — single stub wired to every API route and EventBridge
+  # rule so the Phase 1 stack deploys and responds. Replaced per-route/per-agent
+  # in Phase 2.
+  # ---------------------------------------------------------------------------
+
+  PlaceholderFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: wardline-placeholder
+      Handler: index.handler
+      InlineCode: |
+        import json
+
+        def handler(event, context):
+            # Phase 1 stub: proves the route/rule is wired. Replaced in Phase 2.
+            return {
+                "statusCode": 200,
+                "headers": {"Content-Type": "application/json"},
+                "body": json.dumps({"ok": True, "message": "wardline placeholder"}),
+            }
+
+  # ---------------------------------------------------------------------------
+  # HTTP API (§7) with CORS + placeholder routes.
+  # ---------------------------------------------------------------------------
+
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: "$default"
+      CorsConfiguration:
+        AllowOrigins: ["*"]
+        AllowHeaders: ["*"]
+        AllowMethods: ["GET", "POST", "OPTIONS"]
+
+  ChatRoutePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref PlaceholderFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*"
+
+  ChatRoute:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: wardline-route-chat
+      Handler: index.handler
+      InlineCode: |
+        import json
+        def handler(event, context):
+            return {"statusCode": 200, "headers": {"Content-Type": "application/json"},
+                    "body": json.dumps({"ok": True, "route": "placeholder"})}
+      Events:
+        Chat:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /chat
+            Method: POST
+        Dashboard:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /dashboard
+            Method: GET
+        ControlOutage:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /control/outage
+            Method: POST
+        ControlRestore:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /control/restore
+            Method: POST
+        DeliveryDone:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /deliveries/{id}/done
+            Method: POST
+
+  # ---------------------------------------------------------------------------
+  # S3 static website hosting for the React/Vite frontend build.
+  # ---------------------------------------------------------------------------
+
+  FrontendBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "wardline-frontend-${AWS::AccountId}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false
+        BlockPublicPolicy: false
+        IgnorePublicAcls: false
+        RestrictPublicBuckets: false
+      WebsiteConfiguration:
+        IndexDocument: index.html
+        ErrorDocument: index.html
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerPreferred
+
+  FrontendBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref FrontendBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: PublicReadForStaticSite
+            Effect: Allow
+            Principal: "*"
+            Action: s3:GetObject
+            Resource: !Sub "${FrontendBucket.Arn}/*"
+
+Outputs:
+  ApiUrl:
+    Description: Base URL of the HTTP API (share with the team).
+    Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com"
+  EventBusName:
+    Description: Custom EventBridge bus name.
+    Value: !Ref WardlineBus
+  FrontendBucketName:
+    Description: S3 bucket for the frontend build.
+    Value: !Ref FrontendBucket
+  FrontendUrl:
+    Description: S3 static website endpoint.
+    Value: !Sub "http://${FrontendBucket}.s3-website-${AWS::Region}.amazonaws.com"
+  Region:
+    Description: Deployment region.
+    Value: !Ref AWS::Region
