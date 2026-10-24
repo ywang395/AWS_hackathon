@@ -8,9 +8,9 @@ SpartHill Hacks 2026 · Track: AI-Driven Automation & Critical Service Continuit
 
 When ransomware forces a hospital to shut down its records and pharmacy systems, Wardline keeps medication care running:
 
-1. **Alert agent** — texts every on-shift nurse a secure link, requires acknowledgment, resends, escalates.
+1. **Alert agent** — emails every on-shift nurse a secure link, requires acknowledgment, resends, escalates.
 2. **Nurse agent** — per-nurse AI assistant scoped to ONLY that nurse's patients: downtime brief, Q&A, dose logging, double-dose check, med requests.
-3. **Routing agent** — finds where stock exists, prioritizes doses due, dispatches runners by SMS, escalates when no stock exists.
+3. **Routing agent** — finds where stock exists, prioritizes doses due, dispatches runners by email, escalates when no stock exists.
 4. **Recovery agent** (stretch) — reconciliation report when systems return.
 
 Persona: **Dana**, night-shift charge nurse, 6 nurses, 32 patients, systems dark at 2 AM. Runner: **Marcus**.
@@ -32,11 +32,11 @@ Wardline supports the hospital's downtime procedures (paper MAR stays the offici
 | Layer | Choice |
 |---|---|
 | Language (backend) | Python 3.12, boto3 |
-| AI | Amazon Bedrock, **Converse API with tool use**, Claude model (Haiku for speed). Model ID via `MODEL_ID` env var |
+| AI | Amazon Bedrock, **Converse API with tool use**, Claude Haiku. `MODEL_ID` env var = **`us.anthropic.claude-haiku-4-5-20251001-v1:0`** (us inference profile; bare model ID is not on-demand invocable) |
 | Compute | AWS Lambda (one function per agent + API handlers) |
 | Events | EventBridge custom bus `wardline` + EventBridge Scheduler (5-min routing scan, ack checks) |
 | Data | DynamoDB (on-demand) |
-| SMS | Amazon SNS (sandbox: **verify every demo phone number**) |
+| Email | Amazon SES v2 `send_email` (sandbox: **verify every demo email address**, both sender and recipients, until production access granted). Replaces SMS — the workshop account has no SMS origination and a non-raisable $1 SMS cap. |
 | API | API Gateway HTTP API, CORS enabled |
 | Frontend | React + Vite (static build), hosted on S3 static website |
 | IaC | AWS SAM (`template.yaml`) |
@@ -53,7 +53,7 @@ wardline/
 │   │   ├── agent_loop.py         # Bedrock Converse tool-use loop (shared by all agents)
 │   │   ├── db.py                 # DynamoDB helpers
 │   │   ├── events.py             # put_event() helper
-│   │   ├── sms.py                # SNS send helper (+ DRY_RUN mode)
+│   │   ├── notify.py             # SES send_email helper (+ DRY_RUN mode)  [formerly sms.py]
 │   │   └── auth.py               # token + PIN verification
 │   ├── agents/
 │   │   ├── alert_agent/app.py
@@ -89,7 +89,7 @@ wardline/
 
 | Table | Keys | Fields |
 |---|---|---|
-| `Nurses` | PK `nurse_id` | name, phone, pin_hash, unit, role (`nurse`/`charge`/`runner`), on_shift, location |
+| `Nurses` | PK `nurse_id` | name, email, pin_hash, unit, role (`nurse`/`charge`/`runner`), on_shift, location |
 | `Patients` | PK `patient_id`; GSI `assigned_nurse_id` | room, name (synthetic), dob (for 2-identifier check), allergies[], meds[{med, dose, route, due_at, critical}], vitals, notes, snapshot_ts |
 | `Inventory` | PK `location`, SK `med` | qty, distance_rank |
 | `Deliveries` | PK `request_id` | med, from_location, to_room, due_at, priority, runner_id, status (`assigned`/`picked_up`/`delivered`), created_at |
@@ -147,9 +147,9 @@ def run_agent(system_prompt, tools, user_input, tool_impls, max_steps=8):
 
 | Agent | Trigger | Goal | Tools |
 |---|---|---|---|
-| alert | `OutageDetected`, `AckCheck`, `EscalationNeeded` | Every on-shift nurse reached + acked within 5 min | get_on_shift_staff, get_nurse_workload, send_sms, check_ack, schedule_ack_check, escalate |
+| alert | `OutageDetected`, `AckCheck`, `EscalationNeeded` | Every on-shift nurse reached + acked within 5 min | get_on_shift_staff, get_nurse_workload, send_email, check_ack, schedule_ack_check, escalate |
 | nurse | `POST /chat` | Keep this nurse's patients safe | get_my_patients, get_patient(room), log_event, check_recent_doses, request_med, get_delivery_status |
-| routing | `MedRequested`, 5-min scan | No dose due in 60 min goes undelivered | get_doses_due, find_stock, get_runners, create_delivery, send_sms, escalate |
+| routing | `MedRequested`, 5-min scan | No dose due in 60 min goes undelivered | get_doses_due, find_stock, get_runners, create_delivery, send_email, escalate |
 | recovery | `SystemRestored` | Nothing from downtime is lost | get_downtime_log, get_deliveries, get_escalations, create_report |
 
 Tools bound with server-side context (e.g. `get_my_patients` closes over the verified `nurse_id`). Tools validate inputs (e.g. `get_patient(room)` rejects rooms not assigned to this nurse).
@@ -158,7 +158,7 @@ Tools bound with server-side context (e.g. `get_my_patients` closes over the ver
 
 | Person | Owns |
 |---|---|
-| **Lin — AWS** | `template.yaml` (SAM), DynamoDB tables, EventBridge bus/rules/Scheduler, SNS + **verified demo numbers**, API Gateway + CORS, S3 hosting, IAM roles, Bedrock model access, deploy pipeline. Also `/control` and `/dashboard` Lambdas. |
+| **Lin — AWS** | `template.yaml` (SAM), DynamoDB tables, EventBridge bus/rules/Scheduler, SES + **verified demo email addresses**, API Gateway + CORS, S3 hosting, IAM roles, Bedrock model access, deploy pipeline. Also `/control` and `/dashboard` Lambdas. |
 | **Sunny — Backend (agents core)** | `shared/agent_loop.py`, `shared/events.py`, **routing agent** + tools (`stock.py`, `deliveries.py`), AgentFeed logging, escalation tool |
 | **Alisher — Backend (nurse + alerts)** | `data/*.json` + `scripts/seed.py` (first!), `shared/auth.py`, **nurse agent** (`/chat`, brief, log_event, double-dose check, request_med), **alert agent** (send, ack, resend, escalate) |
 | **Salih — Frontend** | NurseView (brief, patient cards, chat, delivery status), Dashboard (staff acks, escalations, deliveries board, live agent feed), Control page (2 buttons), mock mode, demo visuals |
@@ -172,9 +172,9 @@ Shared: pitch + demo rehearsal (everyone). Whoever finishes first records the ba
 #### Lin — AWS
 Phase 1 (start now)
 - [x] AWS access for all 4 teammates — **shared AWS workshop/event account `580066280520`, region `us-east-1`, via the event's participant login (WSParticipantRole).** No IAM users: the participant role denies `iam:CreateUser`, and the account is event-managed. Everyone uses the same event portal URL + temporary credentials. **Note: temp creds expire — re-login via the event portal when a session lapses. Treat this account as ephemeral (may be reclaimed after the event).**
-- [ ] Enable Bedrock model access (Claude Haiku) in `us-east-1`
-- [ ] Verify all demo phone numbers in the SNS SMS sandbox
-- [ ] Send one test SMS from the console
+- [x] Enable Bedrock model access (Claude Haiku) in `us-east-1` — verified via Converse. **Use inference-profile `MODEL_ID=us.anthropic.claude-haiku-4-5-20251001-v1:0`** (the bare `anthropic.claude-haiku-4-5-...` ID fails with "on-demand throughput isn't supported" — must use the `us.` inference profile).
+- [x] Verify demo email addresses in SES (sandbox) — verified: `lintuwun@gmail.com`, `lintu.wang@sjsu.edu`. **Each nurse/runner demo address must be SES-verified (sandbox) before it can receive mail.** Sender for `send_email` must also be a verified identity (use `lintuwun@gmail.com` as the `FROM_EMAIL`).
+- [x] Send one test email via SES — sent gmail → sjsu, SES returned a MessageId (delivered).
 - [ ] `template.yaml` skeleton: all DynamoDB tables from §5
 - [ ] EventBridge bus `wardline` + rules for the 5 events in §6 (placeholder Lambda targets)
 - [ ] API Gateway HTTP API with CORS + placeholder routes from §7
@@ -189,6 +189,7 @@ Phase 2 (after backend pushes code)
 - [ ] EventBridge Scheduler: 5-min routing scan
 - [ ] Deploy frontend build to S3
 - [ ] CloudWatch logs; end-to-end flow test
+- [ ] (If time) request SES production access to email unverified addresses; else keep all demo addresses verified
 
 #### Sunny — Backend (agent core + routing)
 Phase 1 (start now)
@@ -216,14 +217,14 @@ Phase 1 (start now)
 - [ ] `tools/patients.py`: `get_my_patients(nurse_id)`, `get_patient(room)` with ownership check, reading JSON
 - [ ] `tools/downtime_log.py`: `log_event()` + `check_recent_doses()` (double-dose logic), unit tested
 - [ ] `nurse_agent/prompt.md` (start from §12)
-- [ ] `shared/sms.py`: `send_sms()` with `SMS_DRY_RUN`
-- [ ] Alert agent logic: message builder, ack tracking, resend, escalate — tested with dry-run SMS
+- [ ] `shared/notify.py`: `send_email()` (SES) with `NOTIFY_DRY_RUN`
+- [ ] Alert agent logic: message builder, ack tracking, resend, escalate — tested with dry-run email
 
 Phase 2 (after Sunny's agent loop + Lin's API)
 - [ ] `nurse_agent/app.py` on `run_agent()`: `/chat` returns brief, reply, patients, deliveries
 - [ ] `request_med` tool → `MedRequested` event
 - [ ] Switch tools from JSON to DynamoDB; run seed
-- [ ] Turn off SMS dry-run; test with real phones
+- [ ] Turn off email dry-run; test with real (SES-verified) inboxes
 - [ ] Demo cases pass: Kim escalation, double-dose STOP, refuse other nurse's patient
 
 #### Salih — Frontend
@@ -244,31 +245,31 @@ Phase 2 (after Lin's API URL)
 
 ### Cross-team handoffs (the only dependencies)
 1. **Alisher → all:** seed JSON in the first hour
-2. **Lin → all:** Bedrock access, API URL, table names
+2. **Lin → all:** Bedrock access, API URL, table names, verified SES sender address
 3. **Sunny → Alisher:** agree on the `run_agent()` signature in the first 15 minutes (before it works)
 4. **Salih ↔ backend:** the §7 API contract — nobody changes it without telling the team
 
 ## 10. Milestones
 
 **M0 — Setup (first 1–2 hrs)**
-- Lin: AWS account access for all, Bedrock model enabled, SNS numbers verified, empty SAM stack deploys
+- Lin: AWS account access for all, Bedrock model enabled, SES emails verified, empty SAM stack deploys
 - Alisher: seed data committed + seeded
 - Sunny: `agent_loop.py` calls Bedrock with one dummy tool and returns
 - Salih: Vite app with 3 routes on mock data
 
 **M1 — Core loop**
 - Nurse agent answers questions over own patients only via `/chat`
-- Routing agent handles a manual `MedRequested` → creates delivery → SMS to runner
+- Routing agent handles a manual `MedRequested` → creates delivery → email to runner
 - Frontend NurseView talks to real `/chat`
 
 **M2 — Full flow**
-- Control button → `OutageDetected` → alert agent texts nurses → links open NurseView
+- Control button → `OutageDetected` → alert agent emails nurses → links open NurseView
 - `request_med` from chat → routing agent → delivery visible in NurseView + Dashboard
 - Dashboard live feed polling AgentFeed
 
 **M3 — Demo moments** (must all work)
 - Kim doesn't ack → resend → escalation to Dana
-- Insulin missing in Unit 4 → routed from Unit 6 → Marcus texted
+- Insulin missing in Unit 4 → routed from Unit 6 → Marcus emailed
 - Heparin nowhere → escalation (not a guess)
 - Double-dose caught from shared DowntimeLog
 - Nurse A asks about Nurse B's patient → refused
@@ -285,7 +286,7 @@ Stretch: recovery agent report.
 - Lambda timeout 60s, memory 512MB
 - Times stored ISO 8601 UTC; frontend displays local
 - Logging: JSON to CloudWatch; every agent decision ALSO to `AgentFeed`
-- `SMS_DRY_RUN=1` env var → log instead of send (use during dev to save SMS quota)
+- `NOTIFY_DRY_RUN=1` env var → log instead of send (use during dev; SES sandbox only sends to verified addresses)
 - Branches: `feat/<area>`; PR to `main`; Lin deploys from `main`
 - Keep prompts in `backend/agents/<name>/prompt.md`, loaded at runtime
 - Small functions, type hints, no frameworks on the backend
@@ -307,9 +308,9 @@ You are Wardline, a calm, brief downtime assistant for one nurse during a hospit
 
 1. Hook: real hospitals have run on paper for weeks after ransomware. 2 AM, Dana's unit.
 2. Click **Simulate ransomware** → dashboard goes red.
-3. Phones buzz. Kim doesn't ack → escalation to Dana.
+3. Inboxes ping. Kim doesn't ack → escalation to Dana.
 4. Nurse opens link → AI brief → allergy question → tries to log a dose already given → **STOP**.
-5. "304's insulin isn't in the cabinet" → feed shows routing agent reasoning → Marcus texted. Heparin → escalated to human.
+5. "304's insulin isn't in the cabinet" → feed shows routing agent reasoning → Marcus emailed. Heparin → escalated to human.
 6. Close: "No one had to notice the attack, call each nurse, or find the medicine. Wardline did — and knew when to hand off to a human."
 
 ## 14. Judge Q&A prep
