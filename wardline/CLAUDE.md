@@ -196,7 +196,7 @@ Phase 1 (start now)
 - [x] Unit test the loop with a **fake Bedrock client** (canned `tool_use` → `end_turn`) — no AWS needed
 - [x] `shared/events.py`: `put_event()` with `DRY_RUN` print mode
 - [x] `tools/stock.py`: `find_stock(med)` reading local `inventory.json` (own 5-line fixture until Alisher's lands)
-- [ ] `tools/deliveries.py`: `create_delivery()` with `request_id` dedupe, in-memory store
+- [x] `tools/deliveries.py`: `create_delivery()` with `request_id` dedupe, in-memory store
 - [ ] `tools/escalation.py`: `escalate()` → memory + feed
 - [ ] `routing_agent/prompt.md`
 - [ ] `routing_agent/app.py`: handles `MedRequested` + scan event, runnable locally with fake client
