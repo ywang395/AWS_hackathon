@@ -4,6 +4,46 @@
 
 SpartHill Hacks 2026 · Track: AI-Driven Automation & Critical Service Continuity (AWS)
 
+---
+
+## 🛎️ TEAM TO-DO WHILE LIN IS ASLEEP (read this first)
+
+**Status right now:** the full stack is DEPLOYED and WORKING in AWS account `720318561967`. Backend + frontend + DynamoDB + Bedrock + SES are live. We tested the whole demo end to end. Submission is a 5-min video of the working app, due **11:00 AM** (hard stop) to the Box folder.
+
+**Live URLs (current account `720318561967`):**
+- Frontend (demo this): `http://wardline-frontend-720318561967.s3-website-us-east-1.amazonaws.com`  → `/control`, `/dashboard`, `/nurse?token=…`
+- Backend API: `http://54.164.16.115:8000`  (health: `/health`)
+- Everything http-only. Do NOT put it behind https/CloudFront (mixed-content breaks API calls).
+
+**⚠️ DO NOT (these break the live demo):**
+- **Do NOT stop/terminate the EC2 instance** `i-011a678929e9a0109` — the public IP changes and all links die.
+- **Do NOT merge to `main`** without a heads-up — Lin is recording off `main`. Keep working on your own branch; hold merges.
+- **Do NOT delete/empty the DynamoDB tables or the S3 bucket.**
+- **Do NOT re-run the SAM deploy** or change the region.
+
+**If the backend starts failing (expired AWS creds — happens every ~1 hr):**
+- Symptom: `/dashboard` returns 500, or alerts stop sending. `/health` may still say ok.
+- Fix (needs someone logged into the event portal with fresh creds in the `wardline` profile):
+  `cd wardline && bash deploy/refresh_creds.sh 54.164.16.115 /tmp/wardline-key2.pem`
+  (keep `NOTIFY_DRY_RUN=0 DRY_RUN=0 NOTIFY_TO_OVERRIDE=lintu.wang@sjsu.edu FROM_EMAIL=lintuwun@gmail.com FRONTEND_BASE_URL=…/nurse` set — see the ops note in §9.)
+- SSH key is at `/tmp/wardline-key2.pem`.
+
+**To reset the demo for a clean run (between takes):**
+- `cd wardline && python scripts/reset.py` (needs the `wardline` profile), then
+- `ssh -i /tmp/wardline-key2.pem ec2-user@54.164.16.115 "sudo systemctl restart wardline"` (clears in-memory deliveries/escalations).
+- After a reset, OLD email links stop working — press **Simulate ransomware** again and use the newest emails.
+
+**Safe things to do while Lin sleeps (help, don't break):**
+- [ ] **Salih:** keep polishing the frontend on `feat/frontend-phase1` — commit + push there, DON'T merge to `main` yet. Known nit: empty-state "nested card" at mobile width on the dashboard.
+- [ ] **Anyone:** click the **SES sender verification link** for `lintuwun@gmail.com` if it hasn't been confirmed (check Lin's gmail inbox + spam) — alert emails won't send until it is.
+- [ ] **Anyone:** whitelist the sender so alert emails land in the inbox, not spam, on whatever device we record on.
+- [ ] **Everyone:** rehearse the 2-min demo script (§13). Insulin routes from Unit 6, heparin escalates, double-dose STOP, nurse scoping refusal.
+- [ ] **Backup plan:** if AWS/portal dies, the frontend runs fully offline in mock mode — `cd wardline/frontend && npm run dev:mock`. A mock-mode recording is an acceptable submission.
+
+**Demo logins:** every nurse PIN is `1234`. On-shift nurses: N001 Lin (charge), N002 Alisher, N003 Salih, N004 Sunny.
+
+---
+
 ## 1. What we're building
 
 When ransomware forces a hospital to shut down its records and pharmacy systems, Wardline keeps medication care running:
