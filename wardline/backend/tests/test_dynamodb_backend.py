@@ -84,6 +84,8 @@ def test_alert_ack_store_counts_attempts_and_acks(seeded_dynamo):
     assert alert_app.check_ack("N002", store=store) is True
     store.record_sent("N002", "2024-01-15T03:00:00.000001Z")  # a new outage starts over
     assert store.latest("N002").attempts == 1
+    assert alert_app.start_new_alert_cycle(store=store) == 3
+    assert store.latest("N002") is None
 
 
 def test_chat_history_returns_recent_turns_oldest_first(seeded_dynamo):

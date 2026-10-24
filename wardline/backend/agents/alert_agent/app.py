@@ -77,6 +77,8 @@ class AckStore(Protocol):
 
     def latest(self, nurse_id: str) -> Optional[AlertAttempt]: ...
 
+    def clear(self) -> int: ...
+
 
 class InMemoryAckStore:
     """
@@ -103,6 +105,11 @@ class InMemoryAckStore:
 
     def latest(self, nurse_id: str) -> Optional[AlertAttempt]:
         return self._latest.get(nurse_id)
+
+    def clear(self) -> int:
+        count = len(self._latest)
+        self._latest.clear()
+        return count
 
 
 class DynamoAckStore:
@@ -133,6 +140,22 @@ class DynamoAckStore:
             nurse_id=row["nurse_id"], sent_at=row["sent_at"], attempts=int(row["attempts"]),
             acked=bool(row.get("acked")), acked_at=row.get("acked_at"),
         )
+
+    def clear(self) -> int:
+        rows = db.scan("alerts")
+        for row in rows:
+            db.delete_item("alerts", nurse_id=row["nurse_id"], sent_at=row["sent_at"])
+        return len(rows)
+
+
+def start_new_alert_cycle(*, store: AckStore) -> int:
+    """Forget acks and attempt counts from earlier outages. Returns rows cleared.
+
+    Called when systems go down. Without it, a nurse who acked last outage
+    counts as acked for this one, and one who hit max attempts is escalated
+    immediately, so nobody is emailed. AgentFeed keeps the audit history.
+    """
+    return store.clear()
 
 
 def _now_iso() -> str:
