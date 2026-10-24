@@ -173,8 +173,8 @@ Shared: pitch + demo rehearsal (everyone). Whoever finishes first records the ba
 Phase 1 (start now)
 - [x] AWS access for all 4 teammates — **shared AWS workshop/event account `580066280520`, region `us-east-1`, via the event's participant login (WSParticipantRole).** No IAM users: the participant role denies `iam:CreateUser`, and the account is event-managed. Everyone uses the same event portal URL + temporary credentials. **Note: temp creds expire — re-login via the event portal when a session lapses. Treat this account as ephemeral (may be reclaimed after the event).**
 - [x] Enable Bedrock model access (Claude Haiku) in `us-east-1` — verified via Converse. **Use inference-profile `MODEL_ID=us.anthropic.claude-haiku-4-5-20251001-v1:0`** (the bare `anthropic.claude-haiku-4-5-...` ID fails with "on-demand throughput isn't supported" — must use the `us.` inference profile).
-- [ ] Verify all demo email addresses in SES (sender + recipients, sandbox)
-- [ ] Send one test email via SES
+- [x] Verify demo email addresses in SES (sandbox) — verified: `lintuwun@gmail.com`, `lintu.wang@sjsu.edu`. **Each nurse/runner demo address must be SES-verified (sandbox) before it can receive mail.** Sender for `send_email` must also be a verified identity (use `lintuwun@gmail.com` as the `FROM_EMAIL`).
+- [x] Send one test email via SES — sent gmail → sjsu, SES returned a MessageId (delivered).
 - [ ] `template.yaml` skeleton: all DynamoDB tables from §5
 - [ ] EventBridge bus `wardline` + rules for the 5 events in §6 (placeholder Lambda targets)
 - [ ] API Gateway HTTP API with CORS + placeholder routes from §7
