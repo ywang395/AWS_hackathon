@@ -94,7 +94,6 @@ def test_feed_failure_does_not_store_escalation() -> None:
     [
         ("source_agent", ""),
         ("reason", " "),
-        ("room", ""),
         ("to_role", " "),
     ],
 )

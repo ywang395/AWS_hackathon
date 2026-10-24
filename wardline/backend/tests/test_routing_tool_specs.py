@@ -25,7 +25,7 @@ def test_routing_schema_names_match_prompt_contract() -> None:
         "find_stock",
         "get_runners",
         "create_delivery",
-        "send_email",
+        "send_sms",
         "escalate",
     }
 

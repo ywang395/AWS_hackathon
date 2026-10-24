@@ -13,7 +13,7 @@ from backend.agents.routing_agent.app import (
     create_routing_delivery,
     get_doses_due,
     handle_routing_event,
-    send_email,
+    send_sms,
 )
 from backend.agents.routing_agent.fake_bedrock import (
     CannedBedrockClient,
@@ -92,7 +92,7 @@ def test_med_requested_runs_full_fake_bedrock_workflow(
         "find_stock",
         "get_runners",
         "create_delivery",
-        "send_email",
+        "send_sms",
     ]
     assert "Unit 6 cabinet" in json.loads(capsys.readouterr().out)["body"]
 
@@ -202,7 +202,7 @@ def test_model_cannot_invent_stock_location_or_runner() -> None:
         )
 
     with pytest.raises(RoutingToolError, match="runner_id"):
-        send_email(
+        send_sms(
             runner_id="invented-runner",
             subject="Delivery",
             body="Route medication.",

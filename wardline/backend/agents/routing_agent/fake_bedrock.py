@@ -75,7 +75,7 @@ def insulin_demo_responses(due_at: str) -> list[dict[str, Any]]:
         ),
         tool_use(
             "tool-5",
-            "send_email",
+            "send_sms",
             {
                 "runner_id": "marcus",
                 "subject": "Critical delivery: insulin to room 304",

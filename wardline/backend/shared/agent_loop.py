@@ -10,9 +10,6 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
-import boto3
-from botocore.config import Config
-from botocore.exceptions import BotoCoreError, ClientError
 
 logger = logging.getLogger(__name__)
 
@@ -211,6 +208,9 @@ def _create_bedrock_client(region_name: str | None) -> Any:
         or os.getenv("AWS_DEFAULT_REGION")
         or DEFAULT_REGION
     )
+    import boto3
+    from botocore.config import Config
+
     return boto3.client(
         "bedrock-runtime",
         region_name=resolved_region,
@@ -228,8 +228,6 @@ def _call_converse(
 ) -> Mapping[str, Any]:
     try:
         response = bedrock_client.converse(**request)
-    except (BotoCoreError, ClientError) as exc:
-        raise BedrockInvocationError("Amazon Bedrock Converse request failed.") from exc
     except Exception as exc:
         raise BedrockInvocationError("Amazon Bedrock Converse client failed.") from exc
 
