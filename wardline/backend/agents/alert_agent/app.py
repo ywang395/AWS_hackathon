@@ -17,8 +17,14 @@ It is written so the SAME functions double as the `tool_impls` for
 in without this file changing, matching CLAUDE.md section 8's "Tools
 bound with server-side context" pattern.
 
-Lambda entry point: `handler(event, context)`, dispatched on the
-EventBridge `detail-type` (CLAUDE.md section 6).
+Entry point: `handler(event, context=None)`, dispatched on the
+EventBridge `detail-type` (CLAUDE.md section 6). CLAUDE.md section 3 ruled
+out Lambda in the workshop account, so this is NOT a Lambda handler: the
+server (proposed `backend/server.py`) calls it in-process -- directly for
+`/control`-driven events, and from the background scheduler thread for the
+5-minute `AckCheck` sweep. The `event` dict keeps the EventBridge shape so
+the same handler works unchanged if a real EventBridge target is ever
+added.
 """
 
 from __future__ import annotations
@@ -374,7 +380,7 @@ def run_ack_sweep(
 
 
 # ---------------------------------------------------------------------------
-# Bedrock-tool bindings + Lambda handler
+# Bedrock-tool bindings + event handler
 # ---------------------------------------------------------------------------
 
 def get_tool_impls(*, store: Optional[AckStore] = None) -> dict[str, Callable]:
@@ -400,10 +406,10 @@ _handler_store_singleton: Optional[InMemoryAckStore] = None
 
 def _handler_store() -> InMemoryAckStore:
     """
-    Lazily-created store reused across invocations within the same warm
-    Lambda container. Phase 1 placeholder only -- Phase 2 must replace
-    this with a DynamoDB-backed `AckStore` so state survives cold starts
-    and is shared across concurrent containers.
+    Lazily-created store reused across calls within the one server
+    process. In-memory, so it is a local/dev fallback only -- with
+    DATA_BACKEND=dynamodb, `get_ack_store()` returns the DynamoDB-backed
+    store instead, which survives restarts and is shared across processes.
     """
     global _handler_store_singleton
     if _handler_store_singleton is None:
@@ -422,11 +428,14 @@ def get_ack_store() -> AckStore:
 
 def handler(event: dict, context=None) -> dict:
     """
-    Lambda entry point. Dispatches on the EventBridge `detail-type`
-    (CLAUDE.md section 6): `OutageDetected` and `AckCheck` both run the
-    ack sweep; `EscalationNeeded` raises an escalation routed to this
-    agent (e.g. forwarded from the routing agent, per section 8's trigger
-    list).
+    Event handler, called in-process by the server (CLAUDE.md section 3;
+    Lambda is unavailable in the workshop account). Dispatches on the
+    EventBridge `detail-type` (CLAUDE.md section 6): `OutageDetected` and
+    `AckCheck` both run the ack sweep; `EscalationNeeded` raises an
+    escalation routed to this agent (e.g. forwarded from the routing
+    agent, per section 8's trigger list). Uses the DynamoDB-backed ack
+    store when DATA_BACKEND=dynamodb, so state is shared across the server
+    process rather than per-invocation.
     """
     detail_type = event.get("detail-type")
     detail = event.get("detail", {})

@@ -147,11 +147,11 @@ def test_bedrock_failure_degrades_to_a_safe_reply(env):
     assert len(response["patients"]) == 4
 
 
-def test_api_handler_maps_errors_to_status_codes(env, monkeypatch):
+def test_http_handler_maps_errors_to_status_codes(env, monkeypatch):
     deps = env.deps()
-    ok = nurse.api_handler({"body": json.dumps({"token": env.token(), "pin": "1234", "message": ""})}, deps=deps)
+    ok = nurse.http_handler({"body": json.dumps({"token": env.token(), "pin": "1234", "message": ""})}, deps=deps)
     assert ok["statusCode"] == 200
     assert json.loads(ok["body"])["snapshot_ts"] == "2024-01-15T02:05:00Z"
-    assert nurse.api_handler({"body": "{not json"}, deps=deps)["statusCode"] == 400
-    denied = nurse.api_handler({"body": json.dumps({"token": "x", "pin": "1"})}, deps=deps)
+    assert nurse.http_handler({"body": "{not json"}, deps=deps)["statusCode"] == 400
+    denied = nurse.http_handler({"body": json.dumps({"token": "x", "pin": "1"})}, deps=deps)
     assert denied["statusCode"] == 401

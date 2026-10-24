@@ -22,10 +22,13 @@ Request flow (handle_chat):
   5. Every reply carries the snapshot time (CLAUDE.md section 2). Code
      appends it when the model leaves it out.
 
-Hosting: CLAUDE.md section 3 leaves the compute host open. handle_chat() is
-host-agnostic: a FastAPI/Flask route (the proposed backend/server.py) calls
-it with the parsed JSON body and maps ChatError to an HTTP status.
-api_handler() adapts an API Gateway / Lambda proxy event to the same call.
+Hosting: CLAUDE.md section 3 ruled out Lambda in the workshop account; the
+backend runs as one server (proposed backend/server.py). handle_chat() is
+host-agnostic -- a FastAPI/Flask route calls it with the parsed JSON body
+and maps ChatError to an HTTP status. http_handler() wraps it for a plain
+HTTP request/response (JSON body in, {status, headers, body} out); it keeps
+the proxy-event shape so it also works unchanged behind an HTTP gateway if
+one is ever added.
 
 Every collaborator is injectable through ChatDeps, so tests, the local demo
 and a future server can swap storage, Bedrock and event publishing without
@@ -377,8 +380,13 @@ def _with_history(turns: list[dict], message: str) -> str:
     return "\n".join(lines) + f"\n\nNurse: {message}"
 
 
-def api_handler(event: Mapping[str, Any], context: Any = None, *, deps: Optional[ChatDeps] = None) -> dict[str, Any]:
-    """API Gateway / Lambda proxy adapter: JSON body in, {statusCode, headers, body} out."""
+def http_handler(event: Mapping[str, Any], context: Any = None, *, deps: Optional[ChatDeps] = None) -> dict[str, Any]:
+    """HTTP request adapter: JSON body in, {statusCode, headers, body} out.
+
+    Shape matches an HTTP-gateway proxy event, so a FastAPI/Flask route can
+    forward the raw request here and return the result directly. `context`
+    is accepted and ignored for gateway/Lambda calling-convention parity.
+    """
     try:
         raw = event.get("body") or "{}"
         if event.get("isBase64Encoded"):

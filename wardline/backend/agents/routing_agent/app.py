@@ -1,4 +1,11 @@
-"""AWS Lambda entry point for the Wardline routing agent."""
+"""Event handler for the Wardline routing agent.
+
+CLAUDE.md section 3 ruled out Lambda in the workshop account, so this is
+called in-process by the server (proposed `backend/server.py`): on a
+`MedRequested` event from the nurse agent, and from the background
+scheduler thread for the 5-minute routing scan. The `event` dict keeps
+the EventBridge shape so the handler is unchanged if a real EventBridge
+target is ever added."""
 
 from __future__ import annotations
 
@@ -10,19 +17,11 @@ from functools import partial
 from pathlib import Path
 from typing import Any
 
-try:
-    from backend.agents.routing_agent.tool_specs import ROUTING_TOOL_SPECS
-    from backend.shared.agent_loop import AgentFeedLogger, AgentLoop, JsonLoggingAgentFeed
-    from backend.tools.deliveries import create_delivery
-    from backend.tools.escalation import escalate
-    from backend.tools.stock import find_stock
-except ModuleNotFoundError:
-    # Lambda packages may expose backend/ as the import root.
-    from agents.routing_agent.tool_specs import ROUTING_TOOL_SPECS
-    from shared.agent_loop import AgentFeedLogger, AgentLoop, JsonLoggingAgentFeed
-    from tools.deliveries import create_delivery
-    from tools.escalation import escalate
-    from tools.stock import find_stock
+from backend.agents.routing_agent.tool_specs import ROUTING_TOOL_SPECS
+from backend.shared.agent_loop import AgentFeedLogger, AgentLoop, JsonLoggingAgentFeed
+from backend.tools.deliveries import create_delivery
+from backend.tools.escalation import escalate
+from backend.tools.stock import find_stock
 
 PROMPT_PATH = Path(__file__).with_name("prompt.md")
 AGENT_NAME = "routing_agent"
@@ -302,28 +301,24 @@ def handle_routing_event(
     }
 
 
-def lambda_handler(event: Mapping[str, Any], context: Any) -> dict[str, Any]:
-    """AWS Lambda handler used by EventBridge and Scheduler."""
+def handler(event: Mapping[str, Any], context: Any = None) -> dict[str, Any]:
+    """Event handler, called in-process by the server (CLAUDE.md section 3).
 
+    Dispatched on a `MedRequested` event and by the background routing-scan
+    thread. `context` is accepted and ignored so the EventBridge/Lambda
+    calling convention still works if a real target is added later.
+    """
     del context
     return handle_routing_event(event)
 
 
 def _local_demo() -> None:
-    try:
-        from backend.agents.routing_agent.fake_bedrock import (
-            CannedBedrockClient,
-            insulin_demo_responses,
-        )
-        from backend.tools.deliveries import reset_deliveries
-        from backend.tools.escalation import reset_escalations
-    except ModuleNotFoundError:
-        from agents.routing_agent.fake_bedrock import (
-            CannedBedrockClient,
-            insulin_demo_responses,
-        )
-        from tools.deliveries import reset_deliveries
-        from tools.escalation import reset_escalations
+    from backend.agents.routing_agent.fake_bedrock import (
+        CannedBedrockClient,
+        insulin_demo_responses,
+    )
+    from backend.tools.deliveries import reset_deliveries
+    from backend.tools.escalation import reset_escalations
 
     reset_deliveries()
     reset_escalations()
