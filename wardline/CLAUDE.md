@@ -40,7 +40,7 @@ Wardline supports the hospital's downtime procedures (paper MAR stays the offici
 | API | API Gateway HTTP API, CORS enabled |
 | Frontend | React + Vite (static build), hosted on S3 static website |
 | IaC | AWS SAM (`template.yaml`) |
-| Region | `us-west-2` (everything in ONE region with Bedrock model access enabled) |
+| Region | `us-east-1` (everything in ONE region with Bedrock model access enabled) |
 
 ## 4. Repo structure
 
@@ -171,8 +171,8 @@ Shared: pitch + demo rehearsal (everyone). Whoever finishes first records the ba
 
 #### Lin — AWS
 Phase 1 (start now)
-- [ ] IAM users / SSO access for all 4 teammates
-- [ ] Enable Bedrock model access (Claude Haiku) in `us-west-2`
+- [x] AWS access for all 4 teammates — **shared AWS workshop/event account `580066280520`, region `us-east-1`, via the event's participant login (WSParticipantRole).** No IAM users: the participant role denies `iam:CreateUser`, and the account is event-managed. Everyone uses the same event portal URL + temporary credentials. **Note: temp creds expire — re-login via the event portal when a session lapses. Treat this account as ephemeral (may be reclaimed after the event).**
+- [ ] Enable Bedrock model access (Claude Haiku) in `us-east-1`
 - [ ] Verify all demo phone numbers in the SNS SMS sandbox
 - [ ] Send one test SMS from the console
 - [ ] `template.yaml` skeleton: all DynamoDB tables from §5
