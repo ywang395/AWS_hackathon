@@ -35,7 +35,11 @@ this section wins. Say in the report which skill rule you set aside and why.
 
 - Clarity over style. No decorative fonts, no animations, no layout shift on refresh or on the
   3-second dashboard poll: reserve space for anything that loads and update data in place. Instant
-  press and focus feedback on controls is the only motion.
+  press and focus feedback on controls is the only motion on the nurse view.
+- Dashboard exception (requested by the team, 2026-10-24): status dots may pulse while something is
+  under way (a working agent run, a nurse who hasn't replied), ring once when a nurse confirms, and a
+  newly arrived feed run may fade in. Transform and opacity only, paused when the tab is hidden, and
+  no rings under prefers-reduced-motion. The dot always sits beside words that say the same thing.
 - Touch targets at least 48px, one-handed, high contrast, legible in a dark room. Body text at least
   16px. On the nurse view this replaces the app-screen defaults for text size, row height and control
   size (13–14px text, 32–44px rows).

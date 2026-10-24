@@ -111,7 +111,8 @@ p, .esc-reason, .step-result { text-wrap: pretty; }
 .pill.neg { background: var(--pill-negative-bg); color: var(--pill-negative-ink); }
 .pill.warn { background: var(--pill-warning-bg); color: var(--pill-warning-ink); }
 
-.empty { padding: 16px; border: 1px dashed var(--control); border-radius: var(--radius-card); color: var(--muted); }
+/* an empty section keeps its frame and header and says one sentence; no box inside the box */
+.empty { padding: 10px 0; color: var(--muted); text-wrap: pretty; }
 .skeleton { display: block; height: 16px; border-radius: 4px; background: var(--raised); }
 .skeleton.short { width: 40%; height: 14px; margin-top: 8px; }
 .skeleton-row { padding: 14px 0; }
@@ -171,6 +172,36 @@ p, .esc-reason, .step-result { text-wrap: pretty; }
 .esc .icon { margin-top: 3px; }
 .esc-reason { font-size: 17px; font-weight: 600; }
 .run-toggle { margin-top: 4px; font-size: var(--fs-small); }
+
+/* ---------- status motion (dashboard only; the nurse view stays still) ----------
+   A dot is still for a settled state and pulses while something is under way: a working agent run,
+   a nurse who hasn't replied. A ring that grows and fades, transform and opacity only. */
+.run-agent { display: inline-flex; align-items: center; gap: 8px; }
+.dot { position: relative; display: inline-block; flex: none; width: 10px; height: 10px; border-radius: 50%; background: currentColor; }
+.dot-pos { color: var(--positive); }
+.dot-neg { color: var(--negative); }
+.dot-muted { color: var(--muted); }
+.pill .dot { width: 8px; height: 8px; }
+.dot-pulse::after, .dot-burst::after { content: ""; position: absolute; inset: 0; border-radius: 50%; background: currentColor; }
+.dot-pulse::after { animation: dot-ring 1.6s cubic-bezier(0.16, 1, 0.3, 1) infinite; }
+.dot-burst::after { animation: dot-ring 0.9s cubic-bezier(0.16, 1, 0.3, 1) 2; }
+@keyframes dot-ring { from { transform: scale(1); opacity: 0.6; } to { transform: scale(3); opacity: 0; } }
+.page-hidden .dot-pulse::after { animation-play-state: paused; }
+
+/* a run that arrives after the first load fades in on a raised ground that settles */
+.run-new { animation: run-arrive 1.2s cubic-bezier(0.16, 1, 0.3, 1) both; }
+@keyframes run-arrive { from { opacity: 0; background: var(--raised); } 35% { opacity: 1; background: var(--raised); } to { background: transparent; } }
+
+/* nurses reached: the share confirmed, filled by transform so nothing reflows */
+.reach-track { height: 4px; margin: 4px 0 8px; border-radius: 999px; background: var(--raised); overflow: hidden; }
+.reach-fill { display: block; height: 100%; background: var(--positive); transform-origin: left center; transition: transform 500ms cubic-bezier(0.16, 1, 0.3, 1); }
+
+@media (prefers-reduced-motion: reduce) {
+  /* no rings or travel; the dot's colour and the words carry the state */
+  .dot-pulse::after, .dot-burst::after { animation: none; opacity: 0; }
+  .reach-fill { transition: none; }
+  .run-new { animation-duration: 0.6s; }
+}
 .delivery { flex-wrap: wrap; }
 .delivery-main { flex: 1 1 220px; min-width: 0; }
 .delivery-side { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
@@ -179,7 +210,7 @@ p, .esc-reason, .step-result { text-wrap: pretty; }
 
 /* the feed: newest run first, each a timestamped chain of steps. Its list scrolls inside the
    panel, so the panel takes the right column's height and new rows never move the page */
-.feed { display: flex; flex-direction: column; min-height: 560px; }
+.feed { display: flex; flex-direction: column; min-height: 360px; }
 .feed-scroll { position: relative; flex: 1; min-height: 0; overflow: auto; margin-right: -12px; padding-right: 12px; }
 .feed-scroll > * { width: 100%; }
 @media (min-width: 1101px) { .feed-scroll > .runs { position: absolute; inset: 0 12px auto 0; width: auto; } }

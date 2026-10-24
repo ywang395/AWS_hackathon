@@ -20,6 +20,14 @@ export default function Dashboard() {
   const names = useMemo(() => runnerNames(feed), [feed])
   const down = data?.system?.status === 'down'
 
+  // The status pulses are loops: stop them while the tab is hidden.
+  useEffect(() => {
+    const sync = () => document.documentElement.classList.toggle('page-hidden', document.hidden)
+    sync()
+    document.addEventListener('visibilitychange', sync)
+    return () => document.removeEventListener('visibilitychange', sync)
+  }, [])
+
   return (
     <Shell current="dashboard">
       <SystemBanner system={data?.system} now={now} loading={!data && !error} />
@@ -32,7 +40,7 @@ export default function Dashboard() {
       </header>
       <EscalationsPanel items={data?.escalations} down={down} now={now} />
       <div className="board">
-        <FeedPanel runs={runs} names={names} loading={!data && !error} failed={!data && error} />
+        <FeedPanel runs={runs} names={names} loading={!data && !error} failed={!data && error} working={down && !error} offline={Boolean(error)} />
         <div className="side">
           <StaffPanel staff={data?.staff} down={down} />
           <DeliveriesPanel items={data?.deliveries} names={names} now={now} onChange={refresh} />
@@ -105,15 +113,37 @@ function Freshness({ updatedAt, error, onRetry }) {
 // The agent feed: each run is one agent's reasoning, step by step
 // ---------------------------------------------------------------------------
 
-function FeedPanel({ runs, names, loading, failed }) {
+// A status dot: still for a settled state, pulsing while something is under way. The words next to
+// it always say the same thing, so the dot is never the only signal.
+function Dot({ tone = 'muted', pulse = false, burst = false }) {
+  return <span className={`dot dot-${tone}${pulse ? ' dot-pulse' : ''}${burst ? ' dot-burst' : ''}`} aria-hidden="true" />
+}
+
+// Rows that arrive after the first successful load (whatever it showed, even nothing) stay marked
+// for ARRIVAL_MS, long enough for their fade to finish across the screen's one-second re-renders.
+const ARRIVAL_MS = 1500
+
+function useArrivals(ids, ready) {
+  const seen = useRef(null)
+  const arrivedAt = useRef(new Map())
+  const now = Date.now()
+  if (seen.current) for (const id of ids) if (!seen.current.has(id) && !arrivedAt.current.has(id)) arrivedAt.current.set(id, now)
+  useEffect(() => { if (ready) seen.current = new Set(ids) })
+  return new Set(ids.filter((id) => now - (arrivedAt.current.get(id) ?? -Infinity) < ARRIVAL_MS))
+}
+
+function FeedPanel({ runs, names, loading, failed, working, offline }) {
   const [opened, setOpened] = useState(() => new Set())
   const toggle = (id) => setOpened((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n })
+  const arrived = useArrivals(runs.map((r) => r.id), !loading && !failed)
   return (
     <section className="panel feed" aria-labelledby="feed-title">
       <header>
         <h2 id="feed-title">Agent activity</h2>
         <span className="meta">
-          <Icon name="activity" size={16} /> Live{runs.length ? ` · ${plural(runs.length, 'agent run')}` : ''}
+          {offline
+            ? <><Dot tone="neg" /> Not updating</>
+            : <><Dot tone="pos" pulse={working} /> {working ? 'Agents working' : 'Live'}{runs.length ? ` · ${plural(runs.length, 'run')}` : ''}</>}
         </span>
       </header>
       <div className="feed-scroll">
@@ -123,7 +153,7 @@ function FeedPanel({ runs, names, loading, failed }) {
           <p className="empty">No agent activity yet. When systems go down, every agent decision appears here as it happens.</p>
         )}
         <ol className="runs">
-          {runs.map((run) => <Run key={run.id} run={run} names={names} opened={opened.has(run.id)} onToggle={() => toggle(run.id)} />)}
+          {runs.map((run) => <Run key={run.id} run={run} names={names} isNew={arrived.has(run.id)} opened={opened.has(run.id)} onToggle={() => toggle(run.id)} />)}
         </ol>
       </div>
     </section>
@@ -132,14 +162,15 @@ function FeedPanel({ runs, names, loading, failed }) {
 
 // A finished run that needed nobody collapses to its outcome; working, failed and flagged runs
 // (an escalation, a STOP, a refusal) stay open, because those are the ones to read.
-function Run({ run, names, opened, onToggle }) {
+function Run({ run, names, isNew, opened, onToggle }) {
+  const arrive = isNew ? ' run-new' : ''
   if (run.status === 'single') {
     const { text, result, tone } = describeStep(run.steps[0], names)
     return (
-      <li className={`run run-single${tone === 'neg' ? ' run-flag' : ''}`}>
+      <li className={`run run-single${tone === 'neg' ? ' run-flag' : ''}${arrive}`}>
         <time className="run-time num" dateTime={run.started}>{clockSeconds(run.started)}</time>
         <div className="run-body">
-          <p className="run-head"><strong>{agentLabel(run.agent)}</strong></p>
+          <p className="run-head"><span className="run-agent"><Dot tone={tone === 'neg' ? 'neg' : 'muted'} /><strong>{agentLabel(run.agent)}</strong></span></p>
           <Step text={text} result={result} tone={tone} at={run.started} />
         </div>
       </li>
@@ -151,11 +182,14 @@ function Run({ run, names, opened, onToggle }) {
   const open = notable || opened
   const secs = run.ended ? Math.max(0, Math.round((parseTs(run.ended) - parseTs(run.started)) / 1000)) : null
   return (
-    <li className={`run${flagged ? ' run-flag' : ''}`}>
+    <li className={`run${flagged ? ' run-flag' : ''}${arrive}`}>
       <time className="run-time num" dateTime={run.started}>{clockSeconds(run.started)}</time>
       <div className="run-body">
         <p className="run-head">
-          <strong>{agentLabel(run.agent)}</strong>
+          <span className="run-agent">
+            <Dot tone={run.status === 'failed' || flagged ? 'neg' : 'pos'} pulse={run.status === 'running'} />
+            <strong>{agentLabel(run.agent)}</strong>
+          </span>
           <RunStatus run={run} secs={secs} flagged={flagged} />
         </p>
         {open && (
@@ -175,17 +209,16 @@ function Run({ run, names, opened, onToggle }) {
 }
 
 function RunStatus({ run, secs, flagged }) {
-  if (run.status === 'running') return <span className="run-status"><Icon name="clock" size={16} /> Working · {plural(run.steps.length, 'step')} so far</span>
-  if (run.status === 'failed') return <span className="run-status neg"><Icon name="alert" size={16} /> {run.note}</span>
+  if (run.status === 'running') return <span className="run-status">Working · {plural(run.steps.length, 'step')} so far</span>
+  if (run.status === 'failed') return <span className="run-status neg">{run.note}</span>
   return (
     <span className="run-status">
-      {flagged ? <><Icon name="escalate" size={16} className="neg" /> Handed to a human · </> : <><Icon name="check" size={16} /> Done · </>}
+      {flagged ? 'Handed to a human · ' : 'Done · '}
       {plural(run.steps.length, 'step')}{secs !== null ? ` · ${secs} s` : ''}
     </span>
   )
 }
 
-// Agents write times as ISO or "HH:MM UTC"; `at` dates them so they read in local time.
 function Step({ text, result, tone, at }) {
   return (
     <div className={`step${tone === 'neg' ? ' step-neg' : ''}`}>
@@ -233,12 +266,21 @@ function EscalationsPanel({ items, down, now }) {
 function StaffPanel({ staff, down }) {
   const list = [...(staff || [])].sort((a, b) => Number(a.acked) - Number(b.acked) || a.name.localeCompare(b.name))
   const acked = list.filter((s) => s.acked).length
+  // Names that were waiting on the previous poll: when one confirms, its dot rings once.
+  const waiting = useRef(new Set())
+  const justConfirmed = new Set(list.filter((s) => s.acked && waiting.current.has(s.name)).map((s) => s.name))
+  useEffect(() => { waiting.current = new Set(down ? list.filter((s) => !s.acked).map((s) => s.name) : []) })
   return (
     <section className="panel" aria-labelledby="staff-title">
       <header>
         <h2 id="staff-title">Nurses reached</h2>
         <span className="lead num">{staff && down ? `${acked} of ${list.length}` : ''}</span>
       </header>
+      {staff && down && list.length > 0 && (
+        <div className="reach-track" aria-hidden="true">
+          <span className="reach-fill" style={{ transform: `scaleX(${acked / list.length})` }} />
+        </div>
+      )}
       {!staff && <SkeletonRows count={4} />}
       {staff && !list.length && <p className="empty">No nurses on shift in the record.</p>}
       <ul className="rows">
@@ -247,11 +289,11 @@ function StaffPanel({ staff, down }) {
             <Icon name="person" className="muted" />
             <span className="row-name">{s.name}</span>
             {!down ? (
-              <span className="pill">Not alerted</span>
+              <span className="pill"><Dot /> Not alerted</span>
             ) : s.acked ? (
-              <span className="pill pos"><Icon name="check" size={16} /> Confirmed</span>
+              <span className="pill pos"><Dot tone="pos" burst={justConfirmed.has(s.name)} /> Confirmed</span>
             ) : (
-              <span className="pill warn"><Icon name="clock" size={16} /> No reply yet</span>
+              <span className="pill neg"><Dot tone="neg" pulse /> No reply yet</span>
             )}
           </li>
         ))}
