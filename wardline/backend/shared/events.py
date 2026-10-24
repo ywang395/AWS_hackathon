@@ -10,7 +10,7 @@ from typing import Any
 
 
 DEFAULT_EVENT_BUS_NAME = "wardline"
-DEFAULT_REGION = "us-west-2"
+DEFAULT_REGION = "us-east-1"
 
 ALLOWED_SOURCES_BY_DETAIL_TYPE = {
     "OutageDetected": frozenset({"control"}),
