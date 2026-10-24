@@ -4,12 +4,12 @@ backend/agents/alert_agent/app.py -- the Alert agent.
 CLAUDE.md section 8:
     Trigger: OutageDetected, AckCheck, EscalationNeeded
     Goal:    every on-shift nurse reached + acked within 5 min
-    Tools:   get_on_shift_staff, get_nurse_workload, send_sms, check_ack,
+    Tools:   get_on_shift_staff, get_nurse_workload, send_email, check_ack,
              schedule_ack_check, escalate
 
 This module implements the deterministic parts of that loop directly
 (message building, ack tracking, resend, escalation) so the whole thing is
-testable TODAY with `SMS_DRY_RUN=1` and no dependency on Bedrock or AWS.
+testable today with `NOTIFY_DRY_RUN=1` and no dependency on Bedrock or AWS.
 
 It is written so the SAME functions double as the `tool_impls` for
 `shared.agent_loop.run_agent()` once that module exists (see
@@ -17,8 +17,14 @@ It is written so the SAME functions double as the `tool_impls` for
 in without this file changing, matching CLAUDE.md section 8's "Tools
 bound with server-side context" pattern.
 
-Lambda entry point: `handler(event, context)`, dispatched on the
-EventBridge `detail-type` (CLAUDE.md section 6).
+Entry point: `handler(event, context=None)`, dispatched on the
+EventBridge `detail-type` (CLAUDE.md section 6). CLAUDE.md section 3 ruled
+out Lambda in the workshop account, so this is NOT a Lambda handler: the
+server (proposed `backend/server.py`) calls it in-process -- directly for
+`/control`-driven events, and from the background scheduler thread for the
+5-minute `AckCheck` sweep. The `event` dict keeps the EventBridge shape so
+the same handler works unchanged if a real EventBridge target is ever
+added.
 """
 
 from __future__ import annotations
@@ -31,7 +37,8 @@ from pathlib import Path
 from typing import Callable, Optional, Protocol
 
 from backend.shared import auth
-from backend.shared.sms import SmsResult, send_sms
+from backend.shared import db
+from backend.shared.notify import NotifyResult, send_email
 
 # tools/escalation.py is owned by the routing-agent workstream (CLAUDE.md
 # section 9) and may not be implemented yet at any given time. Fall back
@@ -98,8 +105,39 @@ class InMemoryAckStore:
         return self._latest.get(nurse_id)
 
 
+class DynamoAckStore:
+    """`Alerts` table (CLAUDE.md section 5): PK nurse_id, SK sent_at, one row per send.
+
+    attempts counts sends since the last ack, so a fresh outage after an
+    acked one starts again at 1. Same contract as InMemoryAckStore.
+    """
+
+    def record_sent(self, nurse_id: str, sent_at: str) -> AlertAttempt:
+        prior = self.latest(nurse_id)
+        attempts = (prior.attempts + 1) if prior and not prior.acked else 1
+        db.put_item("alerts", {"nurse_id": nurse_id, "sent_at": sent_at, "attempts": attempts, "acked": False})
+        return AlertAttempt(nurse_id=nurse_id, sent_at=sent_at, attempts=attempts)
+
+    def record_ack(self, nurse_id: str, acked_at: str) -> None:
+        prior = self.latest(nurse_id)
+        if prior:
+            db.update_item("alerts", {"nurse_id": nurse_id, "sent_at": prior.sent_at},
+                           {"acked": True, "acked_at": acked_at})
+
+    def latest(self, nurse_id: str) -> Optional[AlertAttempt]:
+        rows = db.query("alerts", "nurse_id", nurse_id, newest_first=True, limit=1)
+        if not rows:
+            return None
+        row = rows[0]
+        return AlertAttempt(
+            nurse_id=row["nurse_id"], sent_at=row["sent_at"], attempts=int(row["attempts"]),
+            acked=bool(row.get("acked")), acked_at=row.get("acked_at"),
+        )
+
+
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    # Unique per write, so two sends to one nurse never share an Alerts sort key.
+    return db.unique_timestamp()
 
 
 # ---------------------------------------------------------------------------
@@ -110,6 +148,8 @@ _DEFAULT_NURSES_PATH = Path(__file__).resolve().parents[3] / "data" / "nurses.js
 
 
 def _load_nurses(path: Optional[Path] = None) -> list[dict]:
+    if path is None and db.use_dynamodb():
+        return db.scan("nurses")
     target = path or _DEFAULT_NURSES_PATH
     with open(target, "r", encoding="utf-8") as fh:
         return json.load(fh)
@@ -147,7 +187,7 @@ def get_nurse_workload(nurse_id: str, patients: Optional[list[dict]] = None) -> 
 def build_secure_link(nurse_id: str, *, base_url: Optional[str] = None, token_store=None) -> str:
     """
     Mint a fresh `shared.auth` token for `nurse_id` and build the link the
-    SMS points at. A new token is minted per send/resend so an
+    email points at. A new token is minted per send/resend so an
     intercepted text message cannot be replayed indefinitely.
     """
     token = auth.create_token(nurse_id, store=token_store)
@@ -229,18 +269,19 @@ def send_alert(
     attempt: int = 1,
     base_url: Optional[str] = None,
     token_store=None,
-) -> SmsResult:
+) -> NotifyResult:
     """
     Send (or resend, if `attempt > 1`) the outage alert to one nurse and
-    record the attempt in `store`. Uses `shared.sms.send_sms`, so it
-    automatically honors `SMS_DRY_RUN`.
+    record the attempt in `store`. Uses `shared.notify.send_email`, so it
+    honors `NOTIFY_DRY_RUN` and `NOTIFY_TO_OVERRIDE`.
     """
-    message = (
-        build_outage_message(nurse, base_url=base_url, token_store=token_store)
-        if attempt == 1
-        else build_resend_message(nurse, attempt, base_url=base_url, token_store=token_store)
-    )
-    result = send_sms(nurse["phone"], message)
+    if attempt == 1:
+        subject = "Wardline: hospital systems are down"
+        message = build_outage_message(nurse, base_url=base_url, token_store=token_store)
+    else:
+        subject = f"Wardline reminder ({attempt}): please confirm"
+        message = build_resend_message(nurse, attempt, base_url=base_url, token_store=token_store)
+    result = send_email(nurse["email"], subject, message)
     store.record_sent(nurse["nurse_id"], _now_iso())
     return result
 
@@ -331,7 +372,7 @@ def run_ack_sweep(
                 "nurse_id": nurse_id,
                 "action": "sent" if next_attempt == 1 else "resent",
                 "attempt": next_attempt,
-                "sms_status": result.status,
+                "notify_status": result.status,
             }
         )
 
@@ -339,7 +380,7 @@ def run_ack_sweep(
 
 
 # ---------------------------------------------------------------------------
-# Bedrock-tool bindings + Lambda handler
+# Bedrock-tool bindings + event handler
 # ---------------------------------------------------------------------------
 
 def get_tool_impls(*, store: Optional[AckStore] = None) -> dict[str, Callable]:
@@ -353,7 +394,7 @@ def get_tool_impls(*, store: Optional[AckStore] = None) -> dict[str, Callable]:
     return {
         "get_on_shift_staff": get_on_shift_staff,
         "get_nurse_workload": get_nurse_workload,
-        "send_sms": send_sms,
+        "send_email": send_email,
         "check_ack": lambda nurse_id: check_ack(nurse_id, store=active_store),
         "schedule_ack_check": schedule_ack_check,
         "escalate": escalate,
@@ -365,10 +406,10 @@ _handler_store_singleton: Optional[InMemoryAckStore] = None
 
 def _handler_store() -> InMemoryAckStore:
     """
-    Lazily-created store reused across invocations within the same warm
-    Lambda container. Phase 1 placeholder only -- Phase 2 must replace
-    this with a DynamoDB-backed `AckStore` so state survives cold starts
-    and is shared across concurrent containers.
+    Lazily-created store reused across calls within the one server
+    process. In-memory, so it is a local/dev fallback only -- with
+    DATA_BACKEND=dynamodb, `get_ack_store()` returns the DynamoDB-backed
+    store instead, which survives restarts and is shared across processes.
     """
     global _handler_store_singleton
     if _handler_store_singleton is None:
@@ -376,17 +417,29 @@ def _handler_store() -> InMemoryAckStore:
     return _handler_store_singleton
 
 
+def get_ack_store() -> AckStore:
+    """Ack store for the running process: `Alerts` table or the in-memory singleton.
+
+    The nurse agent's /chat handler calls record_ack() through this, so
+    opening the secure link with a valid PIN counts as the acknowledgment.
+    """
+    return DynamoAckStore() if db.use_dynamodb() else _handler_store()
+
+
 def handler(event: dict, context=None) -> dict:
     """
-    Lambda entry point. Dispatches on the EventBridge `detail-type`
-    (CLAUDE.md section 6): `OutageDetected` and `AckCheck` both run the
-    ack sweep; `EscalationNeeded` raises an escalation routed to this
-    agent (e.g. forwarded from the routing agent, per section 8's trigger
-    list).
+    Event handler, called in-process by the server (CLAUDE.md section 3;
+    Lambda is unavailable in the workshop account). Dispatches on the
+    EventBridge `detail-type` (CLAUDE.md section 6): `OutageDetected` and
+    `AckCheck` both run the ack sweep; `EscalationNeeded` raises an
+    escalation routed to this agent (e.g. forwarded from the routing
+    agent, per section 8's trigger list). Uses the DynamoDB-backed ack
+    store when DATA_BACKEND=dynamodb, so state is shared across the server
+    process rather than per-invocation.
     """
     detail_type = event.get("detail-type")
     detail = event.get("detail", {})
-    store = _handler_store()
+    store = get_ack_store()
 
     if detail_type in ("OutageDetected", "AckCheck"):
         return {"outcomes": run_ack_sweep(store=store)}

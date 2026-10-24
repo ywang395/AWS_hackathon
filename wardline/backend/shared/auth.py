@@ -4,7 +4,7 @@ shared/auth.py -- Wardline authentication helpers.
 Implements the two pieces of the downtime login flow described in CLAUDE.md:
 
 1. Secure-link tokens (mirrors the `Tokens` table: PK token, nurse_id,
-   expires_at TTL) created by the alert agent when it SMS's a nurse a link
+   expires_at TTL) created by the alert agent when it emails a nurse a link
    (see `agents/alert_agent/app.py::build_secure_link`), and verified on
    every `POST /chat` request (CLAUDE.md section 7).
 2. Hashed PIN verification (field `pin_hash` on the `Nurses` table) so a
@@ -46,6 +46,8 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Protocol
+
+from backend.shared import db
 
 
 # ---------------------------------------------------------------------------
@@ -144,10 +146,39 @@ class InMemoryTokenStore:
         self._tokens.pop(token, None)
 
 
-# Module-level default store so `create_token`/`verify_token` work out of
-# the box without every caller wiring one up. Pass an explicit `store=` to
-# override (tests, or a real DynamoDB-backed store in Phase 2).
-_default_store = InMemoryTokenStore()
+class DynamoTokenStore:
+    """`Tokens` table (CLAUDE.md section 5): PK token, nurse_id, expires_at.
+
+    expires_at is the table's TTL attribute, so it is stored as whole epoch
+    seconds. DynamoDB deletes expired items lazily (up to ~48h late), which
+    is why verify_token() still checks expiry itself.
+    """
+
+    def put(self, record: TokenRecord) -> None:
+        db.put_item("tokens", {
+            "token": record.token,
+            "nurse_id": record.nurse_id,
+            "expires_at": int(record.expires_at),
+        })
+
+    def get(self, token: str) -> Optional[TokenRecord]:
+        item = db.get_item("tokens", token=token)
+        if item is None:
+            return None
+        return TokenRecord(token=item["token"], nurse_id=item["nurse_id"], expires_at=float(item["expires_at"]))
+
+    def delete(self, token: str) -> None:
+        db.delete_item("tokens", token=token)
+
+
+# Process-wide store for DATA_BACKEND=json, so tokens minted by the alert
+# agent are visible to /chat in the same (single-process) server.
+_memory_store = InMemoryTokenStore()
+
+
+def default_token_store() -> TokenStore:
+    """Store used when no `store=` is passed: DynamoDB or process memory (shared/db.py switch)."""
+    return DynamoTokenStore() if db.use_dynamodb() else _memory_store
 
 
 def create_token(
@@ -158,12 +189,12 @@ def create_token(
 ) -> str:
     """
     Mint a new secure-link token for `nurse_id`. Called by the alert agent
-    when it builds the SMS link (see
+    when it builds the email link (see
     `agents/alert_agent/app.py::build_secure_link`) -- a fresh token is
     minted per send/resend so an intercepted text can't be replayed
     indefinitely.
     """
-    active_store = store or _default_store
+    active_store = store or default_token_store()
     token = secrets.token_urlsafe(32)
     active_store.put(TokenRecord(token=token, nurse_id=nurse_id, expires_at=time.time() + ttl_seconds))
     return token
@@ -176,7 +207,7 @@ def verify_token(token: str, *, store: Optional[TokenStore] = None) -> Optional[
     ONLY way `nurse_id` should ever enter the rest of the system -- never
     accept it as a raw request parameter from the client or the model.
     """
-    active_store = store or _default_store
+    active_store = store or default_token_store()
     record = active_store.get(token)
     if record is None:
         return None
@@ -219,7 +250,17 @@ class JsonNurseLookup:
         return None
 
 
-_default_nurse_lookup = JsonNurseLookup()
+class DynamoNurseLookup:
+    """Reads pin_hash from the `Nurses` table (PK nurse_id)."""
+
+    def get_pin_hash(self, nurse_id: str) -> Optional[str]:
+        item = db.get_item("nurses", nurse_id=nurse_id)
+        return item.get("pin_hash") if item else None
+
+
+def default_nurse_lookup() -> NurseLookup:
+    """Lookup used when no `nurse_lookup=` is passed: DynamoDB or data/nurses.json."""
+    return DynamoNurseLookup() if db.use_dynamodb() else JsonNurseLookup()
 
 
 class AuthError(Exception):
@@ -247,7 +288,7 @@ def authenticate(
     if nurse_id is None:
         raise AuthError("invalid or expired token")
 
-    lookup = nurse_lookup or _default_nurse_lookup
+    lookup = nurse_lookup or default_nurse_lookup()
     pin_hash = lookup.get_pin_hash(nurse_id)
     if pin_hash is None:
         raise AuthError("unknown nurse")

@@ -1,165 +1,116 @@
-"""Amazon SES v2 email helper shared by Wardline agents (replaces shared/sms.py).
+"""
+shared/notify.py -- Amazon SES v2 email helper for the alert agent (nurse
+alerts and resends) and, once wired, the routing agent (runner dispatch).
 
-``NOTIFY_DRY_RUN`` defaults to on: unless it is explicitly set to a false
-value, messages are printed as JSON and no AWS client is created. In the SES
-sandbox both ``FROM_EMAIL`` and every recipient must be verified identities.
+Replaces shared/sms.py: CLAUDE.md section 3 moved notifications to email
+because the workshop account has no SMS origination.
+
+Environment (CLAUDE.md sections 3 and 11, template.yaml Parameters):
+    NOTIFY_DRY_RUN      "1" (default) logs instead of sending; "0" sends for real
+    FROM_EMAIL          SES-verified sender. Required when NOTIFY_DRY_RUN=0
+    NOTIFY_TO_OVERRIDE  optional. Redirects every live email to one
+                        SES-verified inbox. Seed data uses synthetic
+                        @example.com addresses (CLAUDE.md section 2), which the
+                        SES sandbox cannot deliver to, so set this to test real
+                        delivery without putting real addresses in data/.
+    AWS_REGION          SES region (default us-east-1)
+
+Live sends never log the message body: alert emails carry a secure-link
+token (shared/auth.py), and CloudWatch logs are not the place for it. Dry
+runs print the body so a developer can open the link locally.
 """
 
 from __future__ import annotations
 
 import json
 import os
-from datetime import UTC, datetime
+from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
 from typing import Any
 
-from backend.shared.config import resolve_region
-
-MAX_SUBJECT_LENGTH = 200
-
-_TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
-_FALSE_VALUES = frozenset({"0", "false", "no", "off"})
-
-
-class NotifyError(RuntimeError):
-    """Base exception for notification failures."""
-
-
-class NotifyConfigurationError(NotifyError):
-    """Raised when notification configuration is missing or invalid."""
-
-
-class NotifyValidationError(NotifyError):
-    """Raised when a message does not satisfy the helper contract."""
-
-
-class NotifySendError(NotifyError):
-    """Raised when SES rejects the message or the request fails."""
-
-
-def _utc_timestamp() -> str:
-    return datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
-
-
-def _require_text(value: Any, *, field: str) -> str:
-    if not isinstance(value, str) or not value.strip():
-        raise NotifyValidationError(f"{field} must be a non-empty string.")
-    return value.strip()
-
-
-def _require_address(value: Any, *, field: str) -> str:
-    address = _require_text(value, field=field)
-    local, sep, domain = address.partition("@")
-    # Header injection guard: an address must be a single bare mailbox.
-    if not sep or not local or "." not in domain or any(
-        char in address for char in " \r\n,;<>"
-    ):
-        raise NotifyValidationError(f"{field} must be a single email address.")
-    return address
-
-
-def _resolve_dry_run(dry_run: bool | None) -> bool:
-    if dry_run is not None:
-        if not isinstance(dry_run, bool):
-            raise NotifyConfigurationError("dry_run must be a boolean or None.")
-        return dry_run
-    raw = os.getenv("NOTIFY_DRY_RUN", "1").strip().lower()
-    if raw in _TRUE_VALUES:
-        return True
-    if raw in _FALSE_VALUES:
-        return False
-    raise NotifyConfigurationError(
-        "NOTIFY_DRY_RUN must be one of: 1, 0, true, false, yes, no, on, off."
-    )
+DEFAULT_REGION = "us-east-1"
 
 
 def dry_run_enabled() -> bool:
-    """Return True when NOTIFY_DRY_RUN makes send_email log instead of send."""
-
-    return _resolve_dry_run(None)
-
-
-def _create_ses_client(region_name: str | None) -> Any:
-    import boto3
-    from botocore.config import Config
-
-    return boto3.client(
-        "sesv2",
-        region_name=resolve_region(region_name, "SES_REGION"),
-        config=Config(
-            connect_timeout=3,
-            read_timeout=10,
-            retries={"max_attempts": 2, "mode": "standard"},
-        ),
-    )
+    """Dry run unless NOTIFY_DRY_RUN is explicitly off, so a missing env var never sends mail."""
+    return os.environ.get("NOTIFY_DRY_RUN", "1").strip().lower() not in {"0", "false", "no", "off"}
 
 
-def send_email(
-    to: str,
-    subject: str,
-    body: str,
-    *,
-    from_email: str | None = None,
-    client: Any | None = None,
-    dry_run: bool | None = None,
-    region_name: str | None = None,
-) -> dict[str, Any]:
-    """Send one plain-text email through SES v2, or print it in dry-run mode.
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    Returns ``{"status": "dry_run" | "sent", "to", "subject", "message_id",
-    "sent_at"}``. Raises ``NotifyError`` subclasses on invalid input,
-    configuration, or SES failure so agent tools can surface the failure.
+
+@dataclass
+class NotifyResult:
+    to: str
+    subject: str
+    status: str  # "dry_run" | "sent" | "error"
+    delivered_to: str | None = None  # differs from `to` when NOTIFY_TO_OVERRIDE is set
+    message_id: str | None = None
+    error: str | None = None
+    sent_at: str = field(default_factory=_now_iso)
+
+
+def send_email(to: str, subject: str, body: str, *, client: Any | None = None) -> NotifyResult:
+    """Send one plain-text email through SES v2, or log it when dry-run is on.
+
+    Never raises on a delivery failure: one bad address must not abort an
+    alert sweep over several nurses, so callers check `result.status`.
+    `client` takes an injected sesv2 client (tests); otherwise one is built.
     """
-
-    recipient = _require_address(to, field="to")
-    normalized_subject = _require_text(subject, field="subject")
-    if "\r" in normalized_subject or "\n" in normalized_subject:
-        raise NotifyValidationError("subject must be a single line.")
-    if len(normalized_subject) > MAX_SUBJECT_LENGTH:
-        raise NotifyValidationError(
-            f"subject must be {MAX_SUBJECT_LENGTH} characters or fewer."
-        )
-    normalized_body = _require_text(body, field="body")
-
-    result: dict[str, Any] = {
-        "status": "dry_run",
-        "to": recipient,
-        "subject": normalized_subject,
-        "message_id": None,
-        "sent_at": _utc_timestamp(),
-    }
-
-    if _resolve_dry_run(dry_run):
-        print(
-            json.dumps(
-                {"event": "email", **result, "body": normalized_body},
-                ensure_ascii=True,
-                sort_keys=True,
-            ),
-            flush=True,
-        )
+    if dry_run_enabled():
+        result = NotifyResult(to=to, subject=subject, status="dry_run", delivered_to=to)
+        _log(result, body=body)
         return result
 
-    sender = _require_address(
-        from_email or os.getenv("FROM_EMAIL"),
-        field="FROM_EMAIL",
-    )
-    active_client = client if client is not None else _create_ses_client(region_name)
+    sender = os.environ.get("FROM_EMAIL", "").strip()
+    recipient = os.environ.get("NOTIFY_TO_OVERRIDE", "").strip() or to
+    if not sender:
+        result = NotifyResult(
+            to=to, subject=subject, status="error", delivered_to=recipient,
+            error="FROM_EMAIL is not configured.",
+        )
+        _log(result)
+        return result
+
     try:
-        response = active_client.send_email(
+        ses = client if client is not None else _ses_client()
+        response = ses.send_email(
             FromEmailAddress=sender,
             Destination={"ToAddresses": [recipient]},
             Content={
                 "Simple": {
-                    "Subject": {"Data": normalized_subject, "Charset": "UTF-8"},
-                    "Body": {"Text": {"Data": normalized_body, "Charset": "UTF-8"}},
+                    "Subject": {"Data": subject, "Charset": "UTF-8"},
+                    "Body": {"Text": {"Data": body, "Charset": "UTF-8"}},
                 }
             },
         )
-    except Exception as exc:
-        raise NotifySendError("Amazon SES send_email failed.") from exc
+        result = NotifyResult(
+            to=to, subject=subject, status="sent", delivered_to=recipient,
+            message_id=response.get("MessageId"),
+        )
+    except Exception as exc:  # noqa: BLE001 - reported through the result, never raised
+        result = NotifyResult(
+            to=to, subject=subject, status="error", delivered_to=recipient, error=str(exc),
+        )
+    _log(result)
+    return result
 
-    message_id = response.get("MessageId") if isinstance(response, dict) else None
-    if not isinstance(message_id, str) or not message_id:
-        raise NotifySendError("Amazon SES response is missing MessageId.")
 
-    return {**result, "status": "sent", "message_id": message_id}
+def send_bulk_email(recipients: list[str], subject: str, body: str) -> list[NotifyResult]:
+    """Same message to many addresses. Not atomic: one failure does not stop the rest."""
+    return [send_email(to, subject, body) for to in recipients]
+
+
+def _ses_client() -> Any:
+    import boto3  # lazy: dry-run and unit tests need no boto3
+
+    region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or DEFAULT_REGION
+    return boto3.client("sesv2", region_name=region)
+
+
+def _log(result: NotifyResult, *, body: str | None = None) -> None:
+    record: dict[str, Any] = {"event": "email", **asdict(result)}
+    if body is not None:
+        record["body"] = body
+    print(json.dumps(record))

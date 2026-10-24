@@ -2,7 +2,7 @@
 Unit tests for `agents/alert_agent/app.py`.
 
 Runs the full ack-tracking / resend / escalate cycle with
-`SMS_DRY_RUN=1` so no real AWS access is required, mirroring the demo
+`NOTIFY_DRY_RUN=1` so no real AWS access is required, mirroring the demo
 case in CLAUDE.md section 13: "Kim doesn't ack -> resend -> escalation to
 Dana".
 """
@@ -13,15 +13,15 @@ from backend.agents.alert_agent import app
 from backend.shared.auth import InMemoryTokenStore
 
 FIXTURE_NURSES = [
-    {"nurse_id": "N001", "name": "Dana Whitfield", "phone": "+15555550100", "role": "charge", "on_shift": True},
-    {"nurse_id": "N002", "name": "Kim Alvarez", "phone": "+15555550101", "role": "nurse", "on_shift": True},
-    {"nurse_id": "N005", "name": "Marcus Webb", "phone": "+15555550104", "role": "runner", "on_shift": True},
+    {"nurse_id": "N001", "name": "Dana Whitfield", "email": "dana.whitfield@example.com", "role": "charge", "on_shift": True},
+    {"nurse_id": "N002", "name": "Kim Alvarez", "email": "kim.alvarez@example.com", "role": "nurse", "on_shift": True},
+    {"nurse_id": "N005", "name": "Marcus Webb", "email": "marcus.webb@example.com", "role": "runner", "on_shift": True},
 ]
 
 
 @pytest.fixture(autouse=True)
 def dry_run_env(monkeypatch):
-    monkeypatch.setenv("SMS_DRY_RUN", "1")
+    monkeypatch.setenv("NOTIFY_DRY_RUN", "1")
 
 
 @pytest.fixture
@@ -192,7 +192,7 @@ def test_get_tool_impls_exposes_the_claude_md_tool_names():
     assert set(tools.keys()) == {
         "get_on_shift_staff",
         "get_nurse_workload",
-        "send_sms",
+        "send_email",
         "check_ack",
         "schedule_ack_check",
         "escalate",
