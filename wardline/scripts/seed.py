@@ -78,7 +78,7 @@ def seed_table(fixture_file: str, *, dry_run: bool = False, dynamodb=None) -> in
     if dynamodb is None:
         import boto3  # local import: only needed when actually talking to AWS
 
-        region = os.environ.get("AWS_REGION", "us-west-2")
+        region = os.environ.get("AWS_REGION", "us-east-1")
         dynamodb = boto3.resource("dynamodb", region_name=region)
 
     table = dynamodb.Table(table_name)
