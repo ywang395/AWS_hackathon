@@ -34,8 +34,13 @@ SpartHill Hacks 2026 · Track: AI-Driven Automation & Critical Service Continuit
 - After a reset, OLD email links stop working — press **Simulate ransomware** again and use the newest emails.
 
 **Safe things to do while Lin sleeps (help, don't break):**
-- [ ] **Salih:** keep polishing the frontend on `feat/frontend-phase1` — commit + push there, DON'T merge to `main` yet. Known nit: empty-state "nested card" at mobile width on the dashboard.
-- [ ] **Anyone:** click the **SES sender verification link** for `lintuwun@gmail.com` if it hasn't been confirmed (check Lin's gmail inbox + spam) — alert emails won't send until it is.
+- [ ] **Salih (+ anyone):** you CAN tweak the frontend — polish styling/wording as you like. Work on `feat/frontend-phase1`, commit + push there, but DON'T merge to `main` yet (Lin is recording off main). Known nit: empty-state "nested card" at mobile width on the dashboard. After changes, rebuild + redeploy to S3: `cd wardline/frontend && npm run build && aws s3 sync dist/assets s3://wardline-frontend-720318561967/assets --delete --profile wardline && aws s3 cp dist/index.html s3://wardline-frontend-720318561967/index.html --cache-control no-cache --profile wardline && aws s3 cp dist/config.js s3://wardline-frontend-720318561967/config.js --cache-control no-cache --profile wardline`
+- [ ] **Each teammate — VERIFY YOUR OWN EMAIL IN SES:** AWS sent a "verify your email" link to each of you — **click it** (check spam):
+      - Alisher → `alisher.nurmatov@sjsu.edu`
+      - Salih → `algosalih@gmail.com`
+      - Sunny → `yeungkongsunny.lam@sjsu.edu`
+      Until verified, that nurse's alert email can't be delivered (SES sandbox). Once all are verified, we can drop `NOTIFY_TO_OVERRIDE` so each nurse gets their own email instead of everything going to Lin's inbox.
+- [ ] **Anyone:** confirm the **SES sender** `lintuwun@gmail.com` is verified (Lin's gmail inbox + spam) — nothing sends until the sender is confirmed.
 - [ ] **Anyone:** whitelist the sender so alert emails land in the inbox, not spam, on whatever device we record on.
 - [ ] **Everyone:** rehearse the 2-min demo script (§13). Insulin routes from Unit 6, heparin escalates, double-dose STOP, nurse scoping refusal.
 - [ ] **Backup plan:** if AWS/portal dies, the frontend runs fully offline in mock mode — `cd wardline/frontend && npm run dev:mock`. A mock-mode recording is an acceptable submission.
