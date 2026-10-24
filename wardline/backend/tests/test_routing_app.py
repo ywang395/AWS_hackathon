@@ -13,7 +13,6 @@ from backend.agents.routing_agent.app import (
     RoutingToolError,
     build_tool_impls,
     create_routing_delivery,
-    demo_dose,
     get_doses_due,
     get_runners,
     handle_routing_event,
@@ -25,33 +24,12 @@ from backend.agents.routing_agent.fake_bedrock import (
     insulin_demo_responses,
     tool_use,
 )
-from backend.shared.agent_loop import AgentFeedEvent
+from backend.agents.routing_agent.cli import demo_dose
+from backend.tests.helpers import RecordingFeed, RecordingPublisher
 from backend.tools import deliveries, escalation
 from backend.tools.deliveries import build_request_id
 
 INSULIN_DUE_AT = "2024-01-15T02:20:00Z"  # data/patients.json, room 304
-
-
-class RecordingFeed:
-    def __init__(self) -> None:
-        self.events: list[AgentFeedEvent] = []
-
-    def log(self, event: AgentFeedEvent) -> None:
-        self.events.append(event)
-
-    def actions(self) -> list[str]:
-        return [event.action for event in self.events]
-
-
-class RecordingPublisher:
-    def __init__(self, error: Exception | None = None) -> None:
-        self.calls: list[tuple[str, str, dict[str, Any]]] = []
-        self.error = error
-
-    def __call__(self, detail_type: str, source: str, detail: dict[str, Any]) -> None:
-        self.calls.append((detail_type, source, dict(detail)))
-        if self.error is not None:
-            raise self.error
 
 
 @pytest.fixture(autouse=True)

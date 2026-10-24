@@ -1,30 +1,29 @@
 r"""Opt-in live tests: routing agent against real Amazon Bedrock and seed data.
 
-Skipped unless WARDLINE_LIVE_BEDROCK=1 and MODEL_ID are set, plus AWS
-credentials (e.g. AWS_BEARER_TOKEN_BEDROCK). Email and events stay in dry-run.
+Skipped unless WARDLINE_LIVE_BEDROCK=1 and MODEL_ID are set. Credentials and
+MODEL_ID may come from the shell or from a .env in wardline/ or the repo root.
+Email and events stay in dry-run mode.
 
     $env:WARDLINE_LIVE_BEDROCK="1"
-    $env:MODEL_ID="us.anthropic.claude-haiku-4-5-20251001-v1:0"
-    $env:AWS_REGION="us-east-1"
     .\.venv\Scripts\python.exe -m pytest wardline\backend\tests\test_routing_live.py
 """
 
 from __future__ import annotations
 
 import os
-from typing import Any
 
 import pytest
 
 from backend.agents.routing_agent import app as routing_app
-from backend.agents.routing_agent.app import (
-    _demo_event,
-    demo_dose,
-    handle_routing_event,
-    run_routing_scan,
-)
-from backend.shared.agent_loop import AgentFeedEvent
+from backend.agents.routing_agent.app import handle_routing_event, run_routing_scan
+from backend.agents.routing_agent.cli import demo_dose, demo_event
+from backend.shared.config import load_default_env
+from backend.tests.helpers import RecordingFeed, RecordingPublisher
 from backend.tools import deliveries, escalation
+
+# Only read .env when live tests are opted in, so offline runs never see credentials.
+if os.getenv("WARDLINE_LIVE_BEDROCK") == "1":
+    load_default_env()
 
 pytestmark = pytest.mark.skipif(
     os.getenv("WARDLINE_LIVE_BEDROCK") != "1" or not os.getenv("MODEL_ID"),
@@ -32,29 +31,6 @@ pytestmark = pytest.mark.skipif(
 )
 
 RUNNER_IDS = {"N005", "N006"}  # Marcus, Priya in data/nurses.json
-
-
-class RecordingFeed:
-    def __init__(self) -> None:
-        self.events: list[AgentFeedEvent] = []
-
-    def log(self, event: AgentFeedEvent) -> None:
-        self.events.append(event)
-
-    def tools_called(self) -> list[str]:
-        return [
-            event.detail["tool"]
-            for event in self.events
-            if event.action == "tool_requested"
-        ]
-
-
-class RecordingPublisher:
-    def __init__(self) -> None:
-        self.calls: list[tuple[str, str, dict[str, Any]]] = []
-
-    def __call__(self, detail_type: str, source: str, detail: dict[str, Any]) -> None:
-        self.calls.append((detail_type, source, dict(detail)))
 
 
 @pytest.fixture(autouse=True)
@@ -73,7 +49,7 @@ def isolated_run(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_live_insulin_routes_from_unit_6() -> None:
     feed = RecordingFeed()
 
-    result = handle_routing_event(_demo_event("insulin"), feed_logger=feed)
+    result = handle_routing_event(demo_event("insulin"), feed_logger=feed)
 
     assert result["event_type"] == "MedRequested"
     assert result["reply"].startswith("Records as of")
@@ -84,8 +60,8 @@ def test_live_insulin_routes_from_unit_6() -> None:
     assert stored[0]["due_at"] == demo_dose("insulin")["due_at"]
     assert stored[0]["runner_id"] in RUNNER_IDS
     assert "send_email" in feed.tools_called()
-    assert not escalation._ESCALATION_STORE
-    assert not any(e.action == "tool_failed" for e in feed.events)
+    assert not escalation.list_escalations()
+    assert "tool_failed" not in feed.actions()
 
 
 def test_live_heparin_escalates_and_publishes() -> None:
@@ -93,12 +69,12 @@ def test_live_heparin_escalates_and_publishes() -> None:
     publisher = RecordingPublisher()
 
     result = handle_routing_event(
-        _demo_event("heparin"), feed_logger=feed, event_publisher=publisher
+        demo_event("heparin"), feed_logger=feed, event_publisher=publisher
     )
 
     assert result["event_type"] == "MedRequested"
     assert not deliveries.list_deliveries()
-    stored = list(escalation._ESCALATION_STORE.values())
+    stored = escalation.list_escalations()
     assert len(stored) == 1
     assert stored[0]["room"] == "602"
     assert stored[0]["to_role"] == "charge"
@@ -115,8 +91,8 @@ def test_live_scan_routes_insulin_escalates_heparin_and_is_idempotent() -> None:
 
     assert first["event_type"] == "RoutingScan"
     assert {d["med"] for d in deliveries.list_deliveries()} == {"Insulin"}
-    assert {e["room"] for e in escalation._ESCALATION_STORE.values()} == {"602"}
+    assert {e["room"] for e in escalation.list_escalations()} == {"602"}
     # The repeat scan must not re-email the runner or re-alert the charge nurse.
     assert len(publisher.calls) == 1
     assert "send_email" not in second_feed.tools_called()
-    assert len(escalation._ESCALATION_STORE) == 1
+    assert len(escalation.list_escalations()) == 1

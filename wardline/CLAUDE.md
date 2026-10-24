@@ -224,7 +224,7 @@ Phase 1 (start now)
 - [x] `routing_agent/app.py`: handles `MedRequested` + scan event, runnable locally with fake client
 
 Phase 2 (after Lin's Bedrock access + Alisher's seed data)
-- [x] Swap fake client for real Bedrock; test routing agent live (`python -m backend.agents.routing_agent.app --live --case insulin|heparin|scan`; opt-in `tests/test_routing_live.py` with `WARDLINE_LIVE_BEDROCK=1`)
+- [x] Swap fake client for real Bedrock; test routing agent live (`python -m backend.agents.routing_agent.cli --live --case insulin|heparin|scan|outage`; opt-in `tests/test_routing_live.py` with `WARDLINE_LIVE_BEDROCK=1`)
 - [ ] Swap in-memory store for DynamoDB (`shared/db.py`) — AgentFeed writer done (`DynamoAgentFeed`, auto-used when `AGENT_FEED_TABLE` is set); Deliveries/Escalations/Inventory still in-memory/JSON
 - [x] Demo cases pass on live Bedrock + seed data: insulin (room 304) routed from Unit 6; heparin (room 602) escalated + `EscalationNeeded` published
 - [ ] `scripts/reset.py`

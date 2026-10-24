@@ -7,23 +7,12 @@ from typing import Any
 
 import pytest
 
-from backend.shared.agent_loop import AgentFeedEvent
+from backend.tests.helpers import RecordingFeed
 from backend.tools import escalation
 from backend.tools.escalation import (
     EscalationValidationError,
     escalate,
 )
-
-
-class RecordingFeed:
-    def __init__(self, error: Exception | None = None) -> None:
-        self.events: list[AgentFeedEvent] = []
-        self.error = error
-
-    def log(self, event: AgentFeedEvent) -> None:
-        if self.error is not None:
-            raise self.error
-        self.events.append(event)
 
 
 @pytest.fixture(autouse=True)
