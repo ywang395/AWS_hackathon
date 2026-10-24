@@ -191,7 +191,8 @@ Phase 1 (start now)
 
 > **Deployed resources (share these):**
 > - Region: `us-east-1`
-> - API base URL: `https://6haxdip6xj.execute-api.us-east-1.amazonaws.com`
+> - **Live backend API (EC2): `http://32.192.240.107:8000`** ← point `VITE_API_URL` here. IP changes on instance stop/start.
+> - (Unused) HTTP API GW base URL from the empty skeleton: `https://6haxdip6xj.execute-api.us-east-1.amazonaws.com` — no routes; backend is the EC2 server, not API Gateway.
 > - EventBridge bus: `wardline`
 > - DynamoDB tables: `Nurses`, `Patients`, `Inventory`, `Deliveries`, `DowntimeLog`, `Tokens`, `Alerts`, `Escalations`, `AgentFeed`, `ChatHistory`, `SystemState`
 > - Frontend S3 bucket: `wardline-frontend-580066280520`
@@ -201,10 +202,12 @@ Phase 1 (start now)
 Phase 2 (after backend pushes code) — **compute = FastAPI/Flask on EC2 (§3). Lambda is NOT available.**
 - [x] **Compute decided: EC2 server** (Lambda impossible; EC2 launch verified). See §3 banner.
 - [x] Switch tools JSON → DynamoDB + seed live tables — done via `scripts/go_live_dynamodb.py`; read-back checks all pass (12 nurses / 16 patients / 25 inventory live in `us-east-1`).
-- [ ] Launch EC2 (t3.small, default VPC `vpc-08bb470f1b40c6636`, subnet `subnet-0297a1b1ba5f29a20`, Amazon Linux 2023 `ami-08c46876c64a927b8`), SG open for the server port (+ SSH or SSM)
-- [ ] `backend/server.py`: one FastAPI/Flask app exposing the §7 routes (`/chat`, `/dashboard`, `/control/outage`, `/control/restore`, `/deliveries/{id}/done`), CORS enabled
-- [ ] Mount backend handlers as routes — same code, server entry point instead of Lambda handler
-- [ ] Replace EventBridge-triggered agents with in-process calls; run the 5-min routing scan + ack checks as a background scheduler thread (APScheduler)
+- [x] Launch EC2 — **LIVE**: `t3.small` Amazon Linux 2023, instance `i-04b70f4b817f5bdd5`, SG `sg-07b57e6fad2d576c9` (ports 22 + 8000 open), key pair `wardline-key`. Public API: **`http://32.192.240.107:8000`** (health `/health`). ⚠️ public IP changes on stop/start.
+- [x] `backend/server.py`: FastAPI app exposing all §7 routes, CORS enabled — running on the instance under uvicorn (`nohup`, port 8000). Verified over the public internet end-to-end.
+- [x] Mount backend handlers as routes — done (same agent/tool code, server entry point).
+- [x] Background scheduler thread replaces EventBridge Scheduler (5-min scan + ack check); `DISABLE_SCHEDULER=1` to turn off, `SCAN_INTERVAL_SECONDS` to tune.
+
+> **Running the EC2 server (ops notes):** code is cloned at `/home/ec2-user/AWS_hackathon/wardline`; env in `/home/ec2-user/wardline.env` (AWS temp creds + `DATA_BACKEND=dynamodb`, `MODEL_ID`, `NOTIFY_DRY_RUN`/`DRY_RUN`). **Temp creds expire** — when the server starts failing AWS calls, SSH in and rewrite `wardline.env` with fresh participant creds, then restart uvicorn. Start cmd: `cd AWS_hackathon/wardline && set -a && . ~/wardline.env && set +a && nohup .venv/bin/uvicorn backend.server:app --host 0.0.0.0 --port 8000 > ~/server.log 2>&1 &`. For the real demo, set `NOTIFY_DRY_RUN=0` and `DRY_RUN=0` (and verify each nurse email in SES first). SSH: `ssh -i wardline-key.pem ec2-user@<public-ip>`.
 - [ ] `/control/outage` + `/control/restore` → put_events on the `wardline` bus (kept for the feed/story) AND trigger the agent in-process
 - [ ] `/dashboard` route (reads tables, returns §7 shape)
 - [ ] Credentials on EC2: participant temp creds as env vars (no instance profile — see §3 gotchas); refresh on expiry
