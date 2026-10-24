@@ -1,0 +1,22 @@
+[Unit]
+# Wardline backend API (CLAUDE.md section 3: FastAPI on EC2, no Lambda).
+# Install on the instance at /etc/systemd/system/wardline.service, then:
+#   sudo systemctl daemon-reload && sudo systemctl enable --now wardline
+# Logs: journalctl -u wardline -f
+Description=Wardline backend API (FastAPI/uvicorn)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ec2-user
+WorkingDirectory=/home/ec2-user/AWS_hackathon/wardline
+# AWS temp creds + MODEL_ID + DATA_BACKEND + NOTIFY flags live here (chmod 600).
+# Refresh with deploy/refresh_creds.sh when the participant session expires.
+EnvironmentFile=/home/ec2-user/wardline.env
+ExecStart=/home/ec2-user/AWS_hackathon/wardline/.venv/bin/uvicorn backend.server:app --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
