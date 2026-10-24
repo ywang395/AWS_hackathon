@@ -12,7 +12,8 @@ import os
 from datetime import UTC, datetime
 from typing import Any
 
-DEFAULT_REGION = "us-east-1"
+from backend.shared.config import resolve_region
+
 MAX_SUBJECT_LENGTH = 200
 
 _TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
@@ -78,19 +79,12 @@ def dry_run_enabled() -> bool:
 
 
 def _create_ses_client(region_name: str | None) -> Any:
-    resolved_region = (
-        region_name
-        or os.getenv("SES_REGION")
-        or os.getenv("AWS_REGION")
-        or os.getenv("AWS_DEFAULT_REGION")
-        or DEFAULT_REGION
-    )
     import boto3
     from botocore.config import Config
 
     return boto3.client(
         "sesv2",
-        region_name=resolved_region,
+        region_name=resolve_region(region_name, "SES_REGION"),
         config=Config(
             connect_timeout=3,
             read_timeout=10,

@@ -9,12 +9,9 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
-try:
-    from backend.shared.agent_loop import AgentFeedEvent
-except ModuleNotFoundError:
-    from shared.agent_loop import AgentFeedEvent
+from backend.shared.agent_loop import AgentFeedEvent
+from backend.shared.config import resolve_region
 
-DEFAULT_REGION = "us-east-1"
 DEFAULT_AGENT_FEED_TABLE = "AgentFeed"
 # DynamoDB items max out at 400 KB; keep the detail well under that.
 MAX_DETAIL_BYTES = 300_000
@@ -25,16 +22,6 @@ class DynamoError(RuntimeError):
     """Raised when a DynamoDB helper cannot complete its write."""
 
 
-def _resolve_region(region_name: str | None) -> str:
-    return (
-        region_name
-        or os.getenv("DYNAMODB_REGION")
-        or os.getenv("AWS_REGION")
-        or os.getenv("AWS_DEFAULT_REGION")
-        or DEFAULT_REGION
-    )
-
-
 def get_table(table_name: str, *, region_name: str | None = None) -> Any:
     """Return a boto3 DynamoDB Table resource."""
 
@@ -42,7 +29,7 @@ def get_table(table_name: str, *, region_name: str | None = None) -> Any:
 
     return boto3.resource(
         "dynamodb",
-        region_name=_resolve_region(region_name),
+        region_name=resolve_region(region_name, "DYNAMODB_REGION"),
     ).Table(table_name)
 
 

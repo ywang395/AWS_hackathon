@@ -8,9 +8,9 @@ from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any
 
+from backend.shared.config import resolve_region
 
 DEFAULT_EVENT_BUS_NAME = "wardline"
-DEFAULT_REGION = "us-east-1"
 
 ALLOWED_SOURCES_BY_DETAIL_TYPE = {
     "OutageDetected": frozenset({"control"}),
@@ -76,19 +76,12 @@ def _resolve_bus_name(event_bus_name: str | None) -> str:
 
 
 def _create_eventbridge_client(region_name: str | None) -> Any:
-    resolved_region = (
-        region_name
-        or os.getenv("EVENTBRIDGE_REGION")
-        or os.getenv("AWS_REGION")
-        or os.getenv("AWS_DEFAULT_REGION")
-        or DEFAULT_REGION
-    )
     import boto3
     from botocore.config import Config
 
     return boto3.client(
         "events",
-        region_name=resolved_region,
+        region_name=resolve_region(region_name, "EVENTBRIDGE_REGION"),
         config=Config(
             connect_timeout=3,
             read_timeout=10,

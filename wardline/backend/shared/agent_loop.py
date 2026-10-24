@@ -11,13 +11,12 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 
+from backend.shared.config import resolve_region
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_STEPS = 8
 DEFAULT_MODEL_MAX_TOKENS = 1024
-# Bedrock model access (us. inference profile) is enabled in us-east-1.
-DEFAULT_REGION = "us-east-1"
 SUPPORTED_FINAL_STOP_REASONS = frozenset({"end_turn", "stop_sequence"})
 
 ToolImplementation = Callable[..., Any]
@@ -77,6 +76,7 @@ class JsonLoggingAgentFeed:
 
     def log(self, event: AgentFeedEvent) -> None:
         payload = {
+            "day": event.day,
             "ts": event.ts,
             "agent": event.agent,
             "action": event.action,
@@ -113,16 +113,11 @@ def default_feed_logger() -> AgentFeedLogger:
     """
 
     if os.getenv("AGENT_FEED_TABLE"):
-        try:
-            from backend.shared.db import DynamoAgentFeed
-        except ModuleNotFoundError:
-            from shared.db import DynamoAgentFeed
+        # Imported lazily: db.py imports AgentFeedEvent from this module.
+        from backend.shared.db import DynamoAgentFeed
+
         return DynamoAgentFeed()
     return JsonLoggingAgentFeed()
-
-
-def _utc_timestamp() -> str:
-    return next_feed_timestamp()
 
 
 def _emit_feed_event(
@@ -132,7 +127,7 @@ def _emit_feed_event(
     detail: Mapping[str, Any],
 ) -> None:
     event = AgentFeedEvent(
-        ts=_utc_timestamp(),
+        ts=next_feed_timestamp(),
         agent=agent_name,
         action=action,
         detail=dict(detail),
@@ -245,19 +240,12 @@ def _resolve_model_id(model_id: str | None) -> str:
 
 
 def _create_bedrock_client(region_name: str | None) -> Any:
-    resolved_region = (
-        region_name
-        or os.getenv("BEDROCK_REGION")
-        or os.getenv("AWS_REGION")
-        or os.getenv("AWS_DEFAULT_REGION")
-        or DEFAULT_REGION
-    )
     import boto3
     from botocore.config import Config
 
     return boto3.client(
         "bedrock-runtime",
-        region_name=resolved_region,
+        region_name=resolve_region(region_name, "BEDROCK_REGION"),
         config=Config(
             connect_timeout=3,
             read_timeout=25,

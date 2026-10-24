@@ -7,21 +7,12 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
-try:
-    from backend.shared.agent_loop import (
-        AgentFeedEvent,
-        AgentFeedLogger,
-        default_feed_logger,
-        next_feed_timestamp,
-    )
-except ModuleNotFoundError:
-    # Some hosts may expose backend/ as the import root.
-    from shared.agent_loop import (
-        AgentFeedEvent,
-        AgentFeedLogger,
-        default_feed_logger,
-        next_feed_timestamp,
-    )
+from backend.shared.agent_loop import (
+    AgentFeedEvent,
+    AgentFeedLogger,
+    default_feed_logger,
+    next_feed_timestamp,
+)
 
 # This memory store is process-local and will be replaced by DynamoDB in Phase 2.
 _ESCALATION_STORE: dict[str, dict[str, Any]] = {}
@@ -52,6 +43,13 @@ def reset_escalations() -> None:
 
     with _STORE_LOCK:
         _ESCALATION_STORE.clear()
+
+
+def list_escalations() -> list[dict[str, Any]]:
+    """Return copies of every stored escalation."""
+
+    with _STORE_LOCK:
+        return [dict(record) for record in _ESCALATION_STORE.values()]
 
 
 def get_escalation(escalation_id: str) -> dict[str, Any] | None:
