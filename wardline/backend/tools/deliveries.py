@@ -79,6 +79,28 @@ def list_deliveries() -> list[dict[str, Any]]:
         return [dict(delivery) for delivery in _DELIVERY_STORE.values()]
 
 
+_DELIVERY_STATUSES = ("assigned", "picked_up", "delivered")
+
+
+def mark_delivered(request_id: str) -> dict[str, Any]:
+    """Flip a delivery to 'delivered' (POST /deliveries/{id}/done).
+
+    Idempotent: a delivery already 'delivered' is returned unchanged. Raises
+    DeliveryError if the request_id is unknown.
+    """
+
+    normalized = _require_non_empty_string(request_id, field="request_id")
+    with _STORE_LOCK:
+        delivery = _DELIVERY_STORE.get(normalized)
+        if delivery is None:
+            raise DeliveryError(f"Unknown delivery '{normalized}'.")
+        delivery["status"] = "delivered"
+        delivery["delivered_at"] = (
+            datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
+        )
+        return dict(delivery)
+
+
 def create_delivery(
     room: str,
     med: str,
