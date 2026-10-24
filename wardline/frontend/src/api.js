@@ -11,7 +11,15 @@
 import { mockRequest } from './mock.js'
 
 export const isMock = import.meta.env.MODE === 'mock' || import.meta.env.VITE_MOCK === '1'
-const BASE = (import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/+$/, '')
+
+// Where the API lives: in `npm run dev`, VITE_API_URL wins so you can point at a local server;
+// in a build, public/config.js decides, so the address can change in S3 without a rebuild.
+const BASE = (
+  (import.meta.env.DEV && import.meta.env.VITE_API_URL)
+  || window.WARDLINE_CONFIG?.apiUrl
+  || import.meta.env.VITE_API_URL
+  || 'http://localhost:8000'
+).replace(/\/+$/, '')
 
 export class ApiError extends Error {
   constructor(status, message) {

@@ -9,6 +9,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Icon, { Mark } from '../components/Icon.jsx'
 import DeliveryPill from '../components/DeliveryPill.jsx'
+import ThemeToggle from '../components/ThemeToggle.jsx'
 import { ApiError, chat } from '../api.js'
 import { useNow } from '../lib/hooks.js'
 import { age, clock, dob, isOverdue, localizeTimes, plural, relative, runnerName } from '../lib/format.js'
@@ -61,10 +62,11 @@ function DowntimeHeader({ snapshotTs }) {
         <strong>Downtime mode</strong>
         <span>Paper MAR is the official record</span>
       </div>
-      <p className="records-line num">
+      <div className="records-line num">
         <Icon name="clock" />
-        {snapshotTs ? <>Records as of <strong>{clock(snapshotTs)}</strong> · {age(snapshotTs, now)}</> : 'Opening the records from the hospital backup'}
-      </p>
+        <p>{snapshotTs ? <>Records as of <strong>{clock(snapshotTs)}</strong> · {age(snapshotTs, now)}</> : 'Opening the records from the hospital backup'}</p>
+        <ThemeToggle />
+      </div>
     </header>
   )
 }
@@ -145,6 +147,7 @@ function Ward({ token, session, setSession, onLocked }) {
   const [sendError, setSendError] = useState('')
   const [stop, setStop] = useState(null)
   const [refreshing, setRefreshing] = useState(false)
+  const [refreshError, setRefreshError] = useState('')
   const inputRef = useRef(null)
   const endRef = useRef(null)
 
@@ -181,10 +184,12 @@ function Ward({ token, session, setSession, onLocked }) {
 
   async function refresh() {
     setRefreshing(true)
+    setRefreshError('')
     try {
       applyResponse(await chat(token, session.pin, ''))
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) return onLocked()
+      setRefreshError(`Couldn’t check for updates at ${clock(new Date())}. The records below are still from ${clock(session.snapshot_ts)}.`)
     } finally {
       setRefreshing(false)
     }
@@ -207,6 +212,7 @@ function Ward({ token, session, setSession, onLocked }) {
               <Icon name="refresh" /> {refreshing ? 'Checking…' : 'Check for updates'}
             </button>
           </div>
+          {refreshError && <p className="form-error" role="alert"><Icon name="alert" /> {refreshError}</p>}
           <DueNext patients={patients} deliveries={session.deliveries || []} />
           <h2 className="section-title">Patients</h2>
           {!patients.length && <p className="empty">No patients are assigned to you in the record. Ask the charge nurse.</p>}

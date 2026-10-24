@@ -111,7 +111,7 @@ function script(s) {
   }
   const salih = {
     escalation_id: 'e19a0f6b-2c3d-4b7e-8f50-6a1d9c2b7e44', source_agent: 'alert_agent',
-    reason: 'Salih Algosaibi hasn’t confirmed after 2 emails. Rooms 309–312 have meds due from 04:30 UTC. Please check on them.',
+    reason: `Salih Algosaibi hasn’t confirmed after 2 emails. Rooms 309–312 have meds due from ${utc(at(s, '2024-01-15T04:30:00Z'))}. Please check on them.`,
     room: '', nurse_id: 'N003', to_role: 'charge', created_at: isoSeconds(s.outageAt + 30000), resolved: false,
   }
   const call = (sec, id, tool, input, result, step) => [

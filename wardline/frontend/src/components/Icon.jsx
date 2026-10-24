@@ -20,6 +20,9 @@ const PATHS = {
   escalate: 'M12 20V5M6 11l6-6 6 6',
   pill: 'M10.5 20.5a4.6 4.6 0 0 1-6.5-6.5l6-6a4.6 4.6 0 0 1 6.5 6.5l-6 6ZM7 11l6 6',
   activity: 'M3 12h4l2.5-6 5 12L17 12h4',
+  sun: 'M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4',
+  moon: 'M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z',
+  monitor: 'M3.5 4.5h17v11h-17v-11ZM9 19.5h6M12 15.5v4',
 }
 
 export default function Icon({ name, size = 20, className = '', title }) {

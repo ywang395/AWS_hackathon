@@ -1,4 +1,5 @@
 import Icon, { Mark } from './Icon.jsx'
+import ThemeToggle from './ThemeToggle.jsx'
 
 const NAV = [
   { id: 'dashboard', href: '/dashboard', label: 'Dashboard', icon: 'grid' },
@@ -25,6 +26,7 @@ export default function Shell({ current, children }) {
             </li>
           ))}
         </ul>
+        <ThemeToggle className="rail-theme" />
       </nav>
       <div className="canvas">{children}</div>
     </div>

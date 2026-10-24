@@ -5,6 +5,7 @@
    control at least 48px tall. */
 
 :root {
+  /* dark (default): data-terminal */
   --ground: #171719;
   --surface: #131217;   /* cards sit darker than the ground */
   --raised: #212023;
@@ -21,14 +22,49 @@
   --pill-negative-bg: #2c1a20; --pill-negative-ink: #f07a8e;
   --pill-warning-bg: #2a2416;  --pill-warning-ink: #d9a441;
   --pill-neutral-bg: #212023;  --pill-neutral-ink: #d4d4d7;
-  --stop: #7a1626;      /* the STOP field: white text at 9:1 */
+  --primary: #ffffff; --primary-ink: #000000; --primary-hover: #dcdcdf;
+  --danger: #e5566f;  --danger-ink: #000000;  --danger-hover: #f07a8e;
+  --stop: #7a1626;      /* the STOP field: white text at 9:1, in both themes */
   --shadow: 0 12px 28px rgba(0, 0, 0, .2);
+  --card-border: transparent;  /* light cards take a quiet 1px edge instead of the shadow */
 
   --font: "Public Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --fs-title: 26px; --fs-section: 20px; --fs-lead: 20px; --fs-body: 16px; --fs-small: 14px;
   --radius-card: 6px; --radius-control: 999px;
   --rail: 56px; --gap: 24px; --pad: 32px; --target: 48px;
   color-scheme: dark;
+}
+
+/* light: the app-screen light defaults (references/app-screens.md 9.2, 9.5), every grey that carries
+   words at 4.5:1 or more. Applied when chosen, or when the device asks for light and nothing was
+   chosen (lib/theme.js sets data-theme). The two blocks must stay identical. */
+:root[data-theme="light"] {
+  --ground: #f6f7f8; --surface: #ffffff; --raised: #eef0f2; --border: #e3e5e8; --rule: #eceef0; --control: #c9cdd2;
+  --text: #111111; --muted: #5a5e63; --accent: #2a64ad;
+  --positive: #1f6e47; --negative: #c4242a; --warning: #8a3d0c;
+  --pill-positive-bg: #dcfae5; --pill-positive-ink: #04250e;
+  --pill-negative-bg: #ffe8e4; --pill-negative-ink: #831c1e;
+  --pill-warning-bg: #fff3d6;  --pill-warning-ink: #7a3a0a;
+  --pill-neutral-bg: #eceef0;  --pill-neutral-ink: #2f3236;
+  --primary: #1d1f20; --primary-ink: #ffffff; --primary-hover: #3a3d40;
+  --danger: #c4242a;  --danger-ink: #ffffff;  --danger-hover: #a51e23;
+  --shadow: none; --card-border: #e3e5e8;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --ground: #f6f7f8; --surface: #ffffff; --raised: #eef0f2; --border: #e3e5e8; --rule: #eceef0; --control: #c9cdd2;
+    --text: #111111; --muted: #5a5e63; --accent: #2a64ad;
+    --positive: #1f6e47; --negative: #c4242a; --warning: #8a3d0c;
+    --pill-positive-bg: #dcfae5; --pill-positive-ink: #04250e;
+    --pill-negative-bg: #ffe8e4; --pill-negative-ink: #831c1e;
+    --pill-warning-bg: #fff3d6;  --pill-warning-ink: #7a3a0a;
+    --pill-neutral-bg: #eceef0;  --pill-neutral-ink: #2f3236;
+    --primary: #1d1f20; --primary-ink: #ffffff; --primary-hover: #3a3d40;
+    --danger: #c4242a;  --danger-ink: #ffffff;  --danger-hover: #a51e23;
+    --shadow: none; --card-border: #e3e5e8;
+    color-scheme: light;
+  }
 }
 
 /* ---------- reset ---------- */
@@ -52,15 +88,18 @@ a { color: inherit; }
 .btn:hover:not(:disabled) { background: var(--raised); }
 .btn:active:not(:disabled) { background: var(--control); }
 .btn:disabled { cursor: not-allowed; color: var(--muted); }
-.btn-primary { background: var(--text); color: #000; border-color: transparent; }
-.btn-primary:hover:not(:disabled) { background: #dcdcdf; }
+.btn-primary { background: var(--primary); color: var(--primary-ink); border-color: transparent; }
+.btn-primary:hover:not(:disabled) { background: var(--primary-hover); }
 .btn-primary:disabled { background: var(--raised); color: var(--muted); }
-.btn-danger { background: var(--negative); color: #000; border-color: transparent; }
-.btn-danger:hover:not(:disabled) { background: #f07a8e; }
+.btn-danger { background: var(--danger); color: var(--danger-ink); border-color: transparent; }
+.btn-danger:hover:not(:disabled) { background: var(--danger-hover); }
 .btn-danger:disabled { background: var(--raised); }
 .btn-big { min-height: 56px; font-size: 18px; }
 .text-btn { display: inline-flex; align-items: center; min-height: var(--target); padding: 0; border: 0; background: none; font-weight: 600; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
 .text-btn:hover { color: var(--accent); }
+.theme-toggle { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: var(--target); min-height: var(--target); padding: 0 8px; border: 0; border-radius: var(--radius-card); background: none; color: var(--muted); font-size: var(--fs-small); cursor: pointer; }
+.theme-toggle:hover { color: var(--text); background: var(--raised); }
+.rail .theme-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 
 /* a pill: icon + words on a dark tint of the same hue */
 .pill { display: inline-flex; flex: none; align-items: center; gap: 6px; min-height: 28px; padding: 2px 10px; border-radius: 999px; font-size: var(--fs-small); font-weight: 600; white-space: nowrap; background: var(--pill-neutral-bg); color: var(--pill-neutral-ink); }
@@ -82,6 +121,7 @@ a { color: inherit; }
 .rail-mark { display: grid; place-items: center; width: var(--target); height: var(--target); margin-bottom: 12px; color: var(--text); }
 .rail-name, .rail-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 .rail-items { display: grid; gap: 4px; }
+.rail-theme { margin-top: auto; }
 .rail-item { position: relative; display: grid; place-items: center; width: var(--rail); height: var(--target); color: var(--muted); text-decoration: none; }
 .rail-item:hover { color: var(--text); }
 .rail-item[aria-current="page"] { color: var(--text); }
@@ -107,7 +147,7 @@ a { color: inherit; }
 .board > .side { grid-column: span 5; display: grid; gap: var(--gap); align-content: start; }
 
 /* taste-skill-ignore: the data-terminal sheet gives its cards this one shadow; nothing else casts one */
-.panel { min-width: 0; padding: 20px 24px; border-radius: var(--radius-card); background: var(--surface); box-shadow: var(--shadow); }
+.panel { min-width: 0; padding: 20px 24px; border: 1px solid var(--card-border); border-radius: var(--radius-card); background: var(--surface); box-shadow: var(--shadow); }
 .panel > header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
 .panel h2 { font-size: var(--fs-section); line-height: 1.3; font-weight: 400; color: var(--muted); }
 .panel .lead { font-size: var(--fs-lead); font-weight: 600; }
@@ -173,6 +213,8 @@ a { color: inherit; }
   .app { grid-template-columns: minmax(0, 1fr); padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
   .rail { position: fixed; z-index: 10; inset: auto 0 0 0; height: auto; flex-direction: row; justify-content: space-around; padding: 4px 0 env(safe-area-inset-bottom); border-right: 0; border-top: 1px solid var(--border); }
   .rail-mark { display: none; }
+  .rail-theme { margin-top: 0; flex-direction: column; gap: 2px; min-width: 96px; height: 56px; }
+  .rail .theme-label { position: static; width: auto; height: auto; clip: auto; font-size: 13px; }
   .rail-items { display: flex; flex: 1; justify-content: space-around; }
   .rail-item { width: auto; min-width: 96px; height: 56px; gap: 2px; }
   .rail-label { position: static; width: auto; height: auto; clip: auto; font-size: 13px; }

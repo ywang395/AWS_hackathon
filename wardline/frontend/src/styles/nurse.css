@@ -8,7 +8,8 @@
 .nurse-header { position: sticky; top: 0; z-index: 5; background: var(--ground); border-bottom: 1px solid var(--border); }
 .downtime-banner { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; min-height: 44px; padding: 8px 16px; background: var(--pill-negative-bg); }
 .downtime-banner strong { font-weight: 700; }
-.records-line { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 8px 16px; font-size: 17px; }
+.records-line { display: flex; align-items: center; gap: 8px; min-height: 48px; padding: 0 8px 0 16px; font-size: 17px; }
+.records-line p { flex: 1; min-width: 0; padding: 8px 0; }
 .records-line strong { font-weight: 700; }
 
 /* PIN */
@@ -33,7 +34,7 @@
 
 /* due next */
 .due { display: grid; gap: 8px; }
-.due-row { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 12px; padding: 14px 16px; border-radius: var(--radius-card); background: var(--surface); }
+.due-row { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 12px; padding: 14px 16px; border: 1px solid var(--card-border); border-radius: var(--radius-card); background: var(--surface); }
 .due-body { min-width: 0; }
 .due-time { font-size: 22px; font-weight: 700; line-height: 1.2; }
 .due-what { font-size: 17px; }
@@ -45,7 +46,7 @@
 /* patient cards */
 .cards { display: grid; gap: 16px; }
 /* taste-skill-ignore: the style's card shadow, shared with the dashboard panels */
-.card { padding: 18px 16px; border-radius: var(--radius-card); background: var(--surface); box-shadow: var(--shadow); }
+.card { padding: 18px 16px; border: 1px solid var(--card-border); border-radius: var(--radius-card); background: var(--surface); box-shadow: var(--shadow); }
 .card-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
 .card-head h3 { font-size: 24px; line-height: 1.2; font-weight: 700; }
 .identity { display: flex; flex-wrap: wrap; gap: 2px 12px; margin-top: 6px; font-size: 18px; overflow-wrap: anywhere; }

@@ -266,7 +266,7 @@ Phase 1 (start now)
 
 Phase 2 (after Lin's API URL)
 - [ ] Mock mode off; connect to real API
-- [ ] Loading, error, expired-link states
+- [x] Loading, error, expired-link states
 - [ ] Build `dist/` → hand to Lin for S3
 - [ ] Record backup demo video
 
