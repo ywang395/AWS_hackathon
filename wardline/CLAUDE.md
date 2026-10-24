@@ -32,7 +32,7 @@ Wardline supports the hospital's downtime procedures (paper MAR stays the offici
 | Layer | Choice |
 |---|---|
 | Language (backend) | Python 3.12, boto3 |
-| AI | Amazon Bedrock, **Converse API with tool use**, Claude model (Haiku for speed). Model ID via `MODEL_ID` env var |
+| AI | Amazon Bedrock, **Converse API with tool use**, Claude Haiku. `MODEL_ID` env var = **`us.anthropic.claude-haiku-4-5-20251001-v1:0`** (us inference profile; bare model ID is not on-demand invocable) |
 | Compute | AWS Lambda (one function per agent + API handlers) |
 | Events | EventBridge custom bus `wardline` + EventBridge Scheduler (5-min routing scan, ack checks) |
 | Data | DynamoDB (on-demand) |
@@ -172,7 +172,7 @@ Shared: pitch + demo rehearsal (everyone). Whoever finishes first records the ba
 #### Lin — AWS
 Phase 1 (start now)
 - [x] AWS access for all 4 teammates — **shared AWS workshop/event account `580066280520`, region `us-east-1`, via the event's participant login (WSParticipantRole).** No IAM users: the participant role denies `iam:CreateUser`, and the account is event-managed. Everyone uses the same event portal URL + temporary credentials. **Note: temp creds expire — re-login via the event portal when a session lapses. Treat this account as ephemeral (may be reclaimed after the event).**
-- [ ] Enable Bedrock model access (Claude Haiku) in `us-east-1`
+- [x] Enable Bedrock model access (Claude Haiku) in `us-east-1` — verified via Converse. **Use inference-profile `MODEL_ID=us.anthropic.claude-haiku-4-5-20251001-v1:0`** (the bare `anthropic.claude-haiku-4-5-...` ID fails with "on-demand throughput isn't supported" — must use the `us.` inference profile).
 - [ ] Verify all demo phone numbers in the SNS SMS sandbox
 - [ ] Send one test SMS from the console
 - [ ] `template.yaml` skeleton: all DynamoDB tables from §5
