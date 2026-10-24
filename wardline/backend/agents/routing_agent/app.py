@@ -1,72 +1,90 @@
-"""AWS Lambda entry point for the Wardline routing agent."""
+"""Wardline routing agent.
+
+Host-agnostic entry points: the backend server calls ``handle_routing_event``
+in-process for ``MedRequested`` and ``OutageDetected``, and its background
+scheduler calls ``run_routing_scan`` every five minutes (CLAUDE.md §3, §6).
+``lambda_handler`` is kept only as an ``(event, context)`` adapter.
+"""
 
 from __future__ import annotations
 
 import json
 import os
-from collections.abc import Mapping
-from datetime import UTC, datetime, timedelta
-from functools import partial
+import threading
+from collections.abc import Callable, Mapping
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 try:
     from backend.agents.routing_agent.tool_specs import ROUTING_TOOL_SPECS
-    from backend.shared.agent_loop import AgentFeedLogger, AgentLoop, JsonLoggingAgentFeed
-    from backend.tools.deliveries import create_delivery
-    from backend.tools.escalation import escalate
+    from backend.shared.agent_loop import (
+        AgentFeedEvent,
+        AgentFeedLogger,
+        AgentLoop,
+        default_feed_logger,
+        next_feed_timestamp,
+    )
+    from backend.shared.events import put_event
+    from backend.shared.notify import dry_run_enabled as notify_dry_run_enabled
+    from backend.shared.notify import send_email as notify_send_email
+    from backend.tools.deliveries import (
+        DeliveryError,
+        build_request_id,
+        create_delivery,
+        get_delivery,
+        list_deliveries,
+    )
+    from backend.tools.escalation import escalate, get_escalation
     from backend.tools.stock import find_stock
 except ModuleNotFoundError:
-    # Lambda packages may expose backend/ as the import root.
+    # Some hosts may expose backend/ as the import root.
     from agents.routing_agent.tool_specs import ROUTING_TOOL_SPECS
-    from shared.agent_loop import AgentFeedLogger, AgentLoop, JsonLoggingAgentFeed
-    from tools.deliveries import create_delivery
-    from tools.escalation import escalate
+    from shared.agent_loop import (
+        AgentFeedEvent,
+        AgentFeedLogger,
+        AgentLoop,
+        default_feed_logger,
+        next_feed_timestamp,
+    )
+    from shared.events import put_event
+    from shared.notify import dry_run_enabled as notify_dry_run_enabled
+    from shared.notify import send_email as notify_send_email
+    from tools.deliveries import (
+        DeliveryError,
+        build_request_id,
+        create_delivery,
+        get_delivery,
+        list_deliveries,
+    )
+    from tools.escalation import escalate, get_escalation
     from tools.stock import find_stock
 
+EventPublisher = Callable[..., Any]
+
 PROMPT_PATH = Path(__file__).with_name("prompt.md")
+# Phase 1 reads Alisher's seed files; the DynamoDB swap replaces these loaders.
+DATA_DIR = Path(__file__).resolve().parents[3] / "data"
+PATIENTS_PATH = DATA_DIR / "patients.json"
+NURSES_PATH = DATA_DIR / "nurses.json"
+
 AGENT_NAME = "routing_agent"
 MED_REQUESTED = "MedRequested"
-SCAN_EVENT_TYPES = frozenset({"RoutingScan", "ScheduledScan", "Scheduled Event"})
+OUTAGE_DETECTED = "OutageDetected"
+ESCALATION_NEEDED = "EscalationNeeded"
+ROUTING_SCAN = "RoutingScan"
+SCAN_EVENT_TYPES = frozenset({ROUTING_SCAN, "ScheduledScan", "Scheduled Event"})
 ROUTING_PRIORITIES = frozenset({"critical", "urgent"})
+DOSE_WINDOW_MINUTES = 60
+# One request: doses, stock, runners, delivery, notify, final reply (+ slack).
+MED_REQUEST_MAX_STEPS = 8
+# A scan may route and escalate several doses in one run.
+SCAN_MAX_STEPS = 14
+PLACEHOLDER_EMAIL_DOMAIN = "wardline.example"
 
-_LOCAL_RUNNERS = (
-    {
-        "runner_id": "marcus",
-        "location": "Unit 4",
-        "workload": 0,
-    },
-    {
-        "runner_id": "priya",
-        "location": "Central pharmacy",
-        "workload": 1,
-    },
-)
-
-
-def _utc_timestamp(value: datetime) -> str:
-    return value.astimezone(UTC).replace(microsecond=0).isoformat().replace(
-        "+00:00",
-        "Z",
-    )
-
-
-_LOCAL_DOSES = (
-    {
-        "patient_id": "patient-304",
-        "room": "304",
-        "med": "insulin",
-        "due_at": _utc_timestamp(datetime.now(UTC) + timedelta(minutes=30)),
-        "critical": True,
-    },
-    {
-        "patient_id": "patient-312",
-        "room": "312",
-        "med": "heparin",
-        "due_at": _utc_timestamp(datetime.now(UTC) + timedelta(minutes=45)),
-        "critical": True,
-    },
-)
+# (room, med) -> escalation_id, so repeat scans don't re-escalate the same dose.
+_ESCALATION_INDEX: dict[tuple[str, str], str] = {}
+_INDEX_LOCK = threading.Lock()
 
 
 class RoutingEventError(RuntimeError):
@@ -75,6 +93,17 @@ class RoutingEventError(RuntimeError):
 
 class RoutingToolError(RuntimeError):
     """Raised when a routing tool cannot complete its work."""
+
+
+class RoutingDataError(RoutingToolError):
+    """Raised when seed records are missing or malformed."""
+
+
+def reset_routing_state() -> None:
+    """Clear routing-local memory for local runs and tests."""
+
+    with _INDEX_LOCK:
+        _ESCALATION_INDEX.clear()
 
 
 def _require_text(value: Any, *, field: str) -> str:
@@ -87,6 +116,351 @@ def _require_tool_text(value: Any, *, field: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise RoutingToolError(f"{field} must be a non-empty string.")
     return value.strip()
+
+
+def _optional_tool_text(value: Any, *, field: str) -> str | None:
+    if value is None:
+        return None
+    return _require_tool_text(value, field=field)
+
+
+def _parse_utc(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def _iso_utc(value: datetime) -> str:
+    return value.isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def _load_json_list(path: Path) -> list[dict[str, Any]]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RoutingDataError(f"Unable to load records from {path.name}.") from exc
+    if not isinstance(data, list) or not all(isinstance(i, dict) for i in data):
+        raise RoutingDataError(f"{path.name} must contain a list of objects.")
+    return data
+
+
+def _load_staff() -> dict[str, dict[str, Any]]:
+    return {
+        str(record["nurse_id"]): record
+        for record in _load_json_list(NURSES_PATH)
+        if record.get("nurse_id")
+    }
+
+
+def _all_doses() -> tuple[str, list[dict[str, Any]]]:
+    """Return ``(snapshot_ts, doses)`` for every scheduled med in the records."""
+
+    staff = _load_staff()
+    patients = _load_json_list(PATIENTS_PATH)
+    snapshots = [p["snapshot_ts"] for p in patients if p.get("snapshot_ts")]
+    if not snapshots:
+        raise RoutingDataError("Patient records have no snapshot_ts.")
+    snapshot_ts = max(snapshots, key=_parse_utc)
+
+    doses: list[dict[str, Any]] = []
+    for patient in patients:
+        nurse = staff.get(str(patient.get("assigned_nurse_id")), {})
+        unit = nurse.get("unit")
+        for med in patient.get("meds") or []:
+            if not med.get("med") or not med.get("due_at"):
+                continue
+            doses.append(
+                {
+                    "patient_id": patient.get("patient_id"),
+                    "room": str(patient.get("room")),
+                    "med": med["med"],
+                    "due_at": med["due_at"],
+                    "critical": bool(med.get("critical")),
+                    "unit": unit,
+                    "home_cabinet": f"{unit} cabinet" if unit else None,
+                }
+            )
+    return snapshot_ts, doses
+
+
+def _open_escalation_id(room: str, med: str) -> str | None:
+    with _INDEX_LOCK:
+        escalation_id = _ESCALATION_INDEX.get((room, med.casefold()))
+    if escalation_id is None:
+        return None
+    record = get_escalation(escalation_id)
+    if record is None or record.get("resolved"):
+        return None
+    return escalation_id
+
+
+def _enrich_dose(dose: dict[str, Any]) -> dict[str, Any]:
+    stocked = {item["location"] for item in find_stock(dose["med"])}
+    has_home_stock = dose["home_cabinet"] in stocked
+    existing = get_delivery(build_request_id(dose["room"], dose["med"], dose["due_at"]))
+    return {
+        **dose,
+        "home_cabinet_has_stock": has_home_stock,
+        "needs_routing": not has_home_stock,
+        "existing_delivery": (
+            {
+                "request_id": existing["request_id"],
+                "status": existing["status"],
+                "runner_id": existing["runner_id"],
+            }
+            if existing is not None
+            else None
+        ),
+        "open_escalation_id": _open_escalation_id(dose["room"], dose["med"]),
+    }
+
+
+def get_doses_due(room: str | None = None, med: str | None = None) -> dict[str, Any]:
+    """List doses that may need routing, read from the patient records.
+
+    With ``room``/``med`` filters (a ``MedRequested``), matching doses are
+    returned regardless of due time. Without filters (a scan), only doses due
+    within 60 minutes of the record snapshot are returned. The downtime clock
+    is anchored to ``snapshot_ts`` because the records are frozen at that time.
+    """
+
+    room_filter = _optional_tool_text(room, field="room")
+    med_filter = _optional_tool_text(med, field="med")
+    snapshot_ts, doses = _all_doses()
+    window_end = _parse_utc(snapshot_ts) + timedelta(minutes=DOSE_WINDOW_MINUTES)
+
+    if room_filter is not None or med_filter is not None:
+        selected = [
+            dose
+            for dose in doses
+            if (room_filter is None or dose["room"] == room_filter)
+            and (med_filter is None or dose["med"].casefold() == med_filter.casefold())
+        ]
+    else:
+        selected = [d for d in doses if _parse_utc(d["due_at"]) <= window_end]
+
+    selected.sort(key=lambda dose: (_parse_utc(dose["due_at"]), dose["room"]))
+    return {
+        "snapshot_ts": snapshot_ts,
+        "window_end": _iso_utc(window_end),
+        "doses": [_enrich_dose(dose) for dose in selected],
+    }
+
+
+def _on_shift_runners() -> dict[str, dict[str, Any]]:
+    return {
+        nurse_id: record
+        for nurse_id, record in _load_staff().items()
+        if record.get("role") == "runner" and record.get("on_shift") is True
+    }
+
+
+def get_runners() -> list[dict[str, Any]]:
+    """List on-shift runners, least busy first. Contact details stay server-side."""
+
+    active: dict[str, int] = {}
+    for delivery in list_deliveries():
+        if delivery.get("status") != "delivered":
+            runner = delivery.get("runner_id")
+            active[runner] = active.get(runner, 0) + 1
+
+    runners = [
+        {
+            "runner_id": nurse_id,
+            "name": record.get("name"),
+            "location": record.get("location"),
+            "workload": active.get(nurse_id, 0),
+        }
+        for nurse_id, record in _on_shift_runners().items()
+    ]
+    runners.sort(key=lambda runner: (runner["workload"], runner["runner_id"]))
+    return runners
+
+
+def create_routing_delivery(
+    room: str,
+    med: str,
+    due_at: str,
+    from_location: str,
+    priority: str,
+    runner_id: str,
+) -> dict[str, Any]:
+    """Validate model-selected stock, runner, and dose before creating a delivery."""
+
+    normalized_med = _require_tool_text(med, field="med")
+    normalized_location = _require_tool_text(from_location, field="from_location")
+    normalized_runner = _require_tool_text(runner_id, field="runner_id")
+    normalized_room = _require_tool_text(room, field="room")
+    normalized_due_at = _require_tool_text(due_at, field="due_at")
+    normalized_priority = _require_tool_text(priority, field="priority")
+
+    available_locations = {item["location"] for item in find_stock(normalized_med)}
+    if normalized_location not in available_locations:
+        raise RoutingToolError(
+            f"Stock location '{normalized_location}' was not returned for "
+            f"'{normalized_med}'."
+        )
+    if normalized_runner not in _on_shift_runners():
+        raise RoutingToolError(f"Unknown runner_id: '{normalized_runner}'.")
+    if normalized_priority not in ROUTING_PRIORITIES:
+        raise RoutingToolError(
+            f"priority must be one of: {', '.join(sorted(ROUTING_PRIORITIES))}."
+        )
+
+    try:
+        wanted = build_request_id(normalized_room, normalized_med, normalized_due_at)
+    except DeliveryError as exc:
+        raise RoutingToolError(str(exc)) from exc
+    _, doses = _all_doses()
+    record = next(
+        (
+            dose
+            for dose in doses
+            if build_request_id(dose["room"], dose["med"], dose["due_at"]) == wanted
+        ),
+        None,
+    )
+    if record is None:
+        raise RoutingToolError(
+            "due_at does not match a due dose for this room and medication."
+        )
+
+    # Use the record's own values so request_id matches every other agent.
+    return create_delivery(
+        room=record["room"],
+        med=record["med"],
+        due_at=record["due_at"],
+        from_location=normalized_location,
+        priority=normalized_priority,
+        runner_id=normalized_runner,
+    )
+
+
+def _runner_email(runner_id: str) -> str:
+    record = _on_shift_runners().get(runner_id)
+    if record is None:
+        raise RoutingToolError(f"Unknown runner_id: '{runner_id}'.")
+    email = record.get("email")
+    if isinstance(email, str) and email.strip():
+        return email.strip()
+    if notify_dry_run_enabled():
+        # Seed data has no email yet; a synthetic address keeps dry runs flowing.
+        return f"{runner_id.lower()}@{PLACEHOLDER_EMAIL_DOMAIN}"
+    raise RoutingToolError(
+        f"No email address on file for '{runner_id}'; add an SES-verified "
+        "email to the Nurses record."
+    )
+
+
+def send_email(runner_id: str, subject: str, body: str) -> dict[str, Any]:
+    """Email a selected runner via SES; the address is resolved in code."""
+
+    normalized_runner = _require_tool_text(runner_id, field="runner_id")
+    normalized_subject = _require_tool_text(subject, field="subject")
+    normalized_body = _require_tool_text(body, field="body")
+    result = notify_send_email(
+        _runner_email(normalized_runner),
+        normalized_subject,
+        normalized_body,
+    )
+    # Report delivery status to the model without echoing the address.
+    return {
+        "status": result["status"],
+        "runner_id": normalized_runner,
+        "subject": result["subject"],
+        "message_id": result["message_id"],
+    }
+
+
+def _log_feed(feed_logger: AgentFeedLogger, action: str, detail: dict[str, Any]) -> None:
+    feed_logger.log(
+        AgentFeedEvent(
+            ts=next_feed_timestamp(),
+            agent=AGENT_NAME,
+            action=action,
+            detail=detail,
+        )
+    )
+
+
+def _make_routing_escalate(
+    feed_logger: AgentFeedLogger,
+    publish_event: EventPublisher,
+) -> Callable[..., dict[str, Any]]:
+    def routing_escalate(
+        reason: str,
+        room: str,
+        to_role: str = "charge",
+        med: str | None = None,
+    ) -> dict[str, Any]:
+        """Escalate once per (room, med) and publish EscalationNeeded (§6)."""
+
+        normalized_room = _require_tool_text(room, field="room")
+        normalized_med = _optional_tool_text(med, field="med")
+        if normalized_med is not None:
+            existing_id = _open_escalation_id(normalized_room, normalized_med)
+            if existing_id is not None:
+                existing = get_escalation(existing_id) or {}
+                return {**existing, "duplicate": True, "event_published": False}
+
+        record = escalate(
+            AGENT_NAME,
+            reason,
+            normalized_room,
+            to_role,
+            feed_logger=feed_logger,
+        )
+        if normalized_med is not None:
+            with _INDEX_LOCK:
+                _ESCALATION_INDEX[(normalized_room, normalized_med.casefold())] = (
+                    record["escalation_id"]
+                )
+
+        detail = {
+            "escalation_id": record["escalation_id"],
+            "reason": record["reason"],
+            "room": record["room"],
+            "to_role": record["to_role"],
+        }
+        try:
+            publish_event(ESCALATION_NEEDED, AGENT_NAME, detail)
+        except Exception as exc:
+            # The escalation is already stored and on the dashboard; report, don't retry.
+            _log_feed(
+                feed_logger,
+                "event_publish_failed",
+                {
+                    "detail_type": ESCALATION_NEEDED,
+                    "escalation_id": record["escalation_id"],
+                    "error_type": type(exc).__name__,
+                },
+            )
+            return {**record, "event_published": False}
+
+        _log_feed(
+            feed_logger,
+            "event_published",
+            {"detail_type": ESCALATION_NEEDED, **detail},
+        )
+        return {**record, "event_published": True}
+
+    return routing_escalate
+
+
+def build_tool_impls(
+    feed_logger: AgentFeedLogger,
+    publish_event: EventPublisher | None = None,
+) -> dict[str, Any]:
+    # source_agent, feed_logger, and the publisher are bound in code, not by the model.
+    return {
+        "get_doses_due": get_doses_due,
+        "find_stock": find_stock,
+        "get_runners": get_runners,
+        "create_delivery": create_routing_delivery,
+        "send_email": send_email,
+        "escalate": _make_routing_escalate(
+            feed_logger,
+            publish_event if publish_event is not None else put_event,
+        ),
+    }
 
 
 def _parse_event(event: Mapping[str, Any]) -> tuple[str, dict[str, Any]]:
@@ -113,13 +487,16 @@ def _parse_event(event: Mapping[str, Any]) -> tuple[str, dict[str, Any]]:
             _require_text(detail.get(field), field=field)
         return MED_REQUESTED, detail
 
+    if detail_type == OUTAGE_DETECTED:
+        return OUTAGE_DETECTED, detail
+
     # Scheduler invocations use "Scheduled Event"; direct local scans may set scan=true.
     if (
         detail_type in SCAN_EVENT_TYPES
         or event.get("source") == "aws.scheduler"
         or event.get("scan") is True
     ):
-        return "RoutingScan", detail
+        return ROUTING_SCAN, detail
 
     raise RoutingEventError(f"Unsupported routing event type: {detail_type!r}.")
 
@@ -128,145 +505,28 @@ def load_system_prompt() -> str:
     return PROMPT_PATH.read_text(encoding="utf-8")
 
 
-def get_doses_due() -> list[dict[str, Any]]:
-    """Return local demo doses until the DynamoDB-backed tool is connected."""
-
-    # The fixture is fixed for one process lifetime and replaced by DynamoDB later.
-    return [dict(dose) for dose in _LOCAL_DOSES]
-
-
-def get_runners() -> list[dict[str, Any]]:
-    """Return local runner fixtures until the nurses table is connected."""
-
-    return [dict(runner) for runner in _LOCAL_RUNNERS]
-
-
-def create_routing_delivery(
-    room: str,
-    med: str,
-    due_at: str,
-    from_location: str,
-    priority: str,
-    runner_id: str,
-) -> dict[str, Any]:
-    """Validate model-selected stock and runner before creating a delivery."""
-
-    normalized_med = _require_tool_text(med, field="med")
-    normalized_location = _require_tool_text(
-        from_location,
-        field="from_location",
-    )
-    normalized_runner = _require_tool_text(runner_id, field="runner_id")
-    normalized_room = _require_tool_text(room, field="room")
-    normalized_due_at = _require_tool_text(due_at, field="due_at")
-    normalized_priority = _require_tool_text(priority, field="priority")
-    available_locations = {
-        item["location"]
-        for item in find_stock(normalized_med)
-        if item["qty"] > 0
-    }
-    if normalized_location not in available_locations:
-        raise RoutingToolError(
-            f"Stock location '{normalized_location}' was not returned for "
-            f"'{normalized_med}'."
-        )
-    valid_runners = {runner["runner_id"] for runner in get_runners()}
-    if normalized_runner not in valid_runners:
-        raise RoutingToolError(f"Unknown runner_id: '{normalized_runner}'.")
-    if normalized_priority not in ROUTING_PRIORITIES:
-        raise RoutingToolError(
-            f"priority must be one of: {', '.join(sorted(ROUTING_PRIORITIES))}."
-        )
-
-    due_record = next(
-        (
-            dose
-            for dose in get_doses_due()
-            if dose["room"] == normalized_room
-            and dose["med"].casefold() == normalized_med.casefold()
-            and dose["due_at"] == normalized_due_at
-        ),
-        None,
-    )
-    if due_record is None:
-        raise RoutingToolError(
-            "due_at does not match a due dose for this room and medication."
-        )
-
-    return create_delivery(
-        room=normalized_room,
-        med=normalized_med,
-        due_at=normalized_due_at,
-        from_location=normalized_location,
-        priority=normalized_priority,
-        runner_id=normalized_runner,
-    )
-
-
-def send_sms(runner_id: str, subject: str, body: str) -> dict[str, Any]:
-    """Provide a safe local notification stub until shared/notify.py is wired."""
-
-    normalized_runner = _require_tool_text(runner_id, field="runner_id")
-    normalized_subject = _require_tool_text(subject, field="subject")
-    normalized_body = _require_tool_text(body, field="body")
-    valid_runners = {runner["runner_id"] for runner in get_runners()}
-    if normalized_runner not in valid_runners:
-        raise RoutingToolError(f"Unknown runner_id: '{normalized_runner}'.")
-    dry_run = os.getenv("NOTIFY_DRY_RUN", "1").strip().lower()
-    if dry_run not in {"1", "true", "yes", "on"}:
-        raise RoutingToolError(
-            "SES delivery is not wired yet; enable NOTIFY_DRY_RUN for Phase 1."
-        )
-
-    print(
-        json.dumps(
-            {
-                "tool": "send_sms",
-                "mode": "dry_run",
-                "runner_id": normalized_runner,
-                "subject": normalized_subject,
-                "body": normalized_body,
-            },
-            ensure_ascii=True,
-            sort_keys=True,
-        )
-    )
-    return {
-        "status": "dry_run",
-        "runner_id": normalized_runner,
-        "subject": normalized_subject,
-    }
-
-
-def build_tool_impls(feed_logger: AgentFeedLogger) -> dict[str, Any]:
-    # source_agent and feed_logger are bound in code, not supplied by the model.
-    routing_escalate = partial(
-        escalate,
-        source_agent=AGENT_NAME,
-        feed_logger=feed_logger,
-    )
-    return {
-        "get_doses_due": get_doses_due,
-        "find_stock": find_stock,
-        "get_runners": get_runners,
-        "create_delivery": create_routing_delivery,
-        "send_sms": send_sms,
-        "escalate": routing_escalate,
-    }
+_SCAN_INSTRUCTIONS = (
+    "Call get_doses_due with no arguments. For every dose with needs_routing "
+    "true, no existing_delivery, and no open_escalation_id, route available "
+    "stock or escalate. Skip every other dose."
+)
 
 
 def _build_user_input(event_type: str, detail: Mapping[str, Any]) -> str:
     if event_type == MED_REQUESTED:
         return (
-            "Handle this MedRequested event. Resolve the dose through "
-            f"get_doses_due, route it safely, and notify the runner.\n"
+            "Handle this MedRequested event. Call get_doses_due with the event "
+            "room and med to resolve the dose, route it safely, and notify the "
+            "runner.\n"
             f"Event detail: {json.dumps(dict(detail), sort_keys=True)}"
         )
-    return (
-        "Run a routing scan now. Process every dose due within the next 60 "
-        "minutes. Route available stock and escalate anything that cannot be "
-        "handled safely."
-    )
+    if event_type == OUTAGE_DETECTED:
+        started_at = detail.get("started_at", "unknown time")
+        return (
+            f"Hospital systems went down at {started_at}. Run the initial "
+            f"routing scan now. {_SCAN_INSTRUCTIONS}"
+        )
+    return f"Run a routing scan now. {_SCAN_INSTRUCTIONS}"
 
 
 def handle_routing_event(
@@ -275,13 +535,18 @@ def handle_routing_event(
     model_id: str | None = None,
     bedrock_client: Any | None = None,
     feed_logger: AgentFeedLogger | None = None,
+    event_publisher: EventPublisher | None = None,
+    max_steps: int | None = None,
 ) -> dict[str, Any]:
-    """Run the routing agent for one EventBridge or local event."""
+    """Run the routing agent for one MedRequested, OutageDetected, or scan event.
 
-    event_type, detail = _parse_event(event) # return MED_REQUESTED, detail
-    active_feed = (
-        feed_logger if feed_logger is not None else JsonLoggingAgentFeed()
-    )
+    Leave ``bedrock_client`` as None to call real Bedrock using ``MODEL_ID``
+    and the standard AWS credential chain (including AWS_BEARER_TOKEN_BEDROCK).
+    ``event_publisher`` defaults to ``put_event`` (honors ``DRY_RUN``).
+    """
+
+    event_type, detail = _parse_event(event)
+    active_feed = feed_logger if feed_logger is not None else default_feed_logger()
     # Dependency injection keeps the full workflow runnable with a fake client.
     agent = AgentLoop(
         model_id=model_id,
@@ -289,11 +554,19 @@ def handle_routing_event(
         feed_logger=active_feed,
         agent_name=AGENT_NAME,
     )
+    resolved_max_steps = (
+        max_steps
+        if max_steps is not None
+        else MED_REQUEST_MAX_STEPS
+        if event_type == MED_REQUESTED
+        else SCAN_MAX_STEPS
+    )
     reply = agent.run(
         load_system_prompt(),
         ROUTING_TOOL_SPECS,
         _build_user_input(event_type, detail),
-        build_tool_impls(active_feed),
+        build_tool_impls(active_feed, event_publisher),
+        max_steps=resolved_max_steps,
     )
     return {
         "agent": AGENT_NAME,
@@ -302,51 +575,165 @@ def handle_routing_event(
     }
 
 
+def run_routing_scan(**kwargs: Any) -> dict[str, Any]:
+    """Entry point for the server's five-minute background scheduler."""
+
+    return handle_routing_event({"detail-type": ROUTING_SCAN, "detail": {}}, **kwargs)
+
+
 def lambda_handler(event: Mapping[str, Any], context: Any) -> dict[str, Any]:
-    """AWS Lambda handler used by EventBridge and Scheduler."""
+    """``(event, context)`` adapter for Lambda-style hosts."""
 
     del context
     return handle_routing_event(event)
 
 
-def _local_demo() -> None:
+class PrintingAgentFeed:
+    """Local feed logger that prints each AgentFeed event as one JSON line."""
+
+    def log(self, event: Any) -> None:
+        print(
+            json.dumps(
+                {
+                    "day": event.day,
+                    "ts": event.ts,
+                    "agent": event.agent,
+                    "action": event.action,
+                    "detail": event.detail,
+                },
+                default=str,
+                ensure_ascii=True,
+                sort_keys=True,
+            ),
+            flush=True,
+        )
+
+
+def load_env_file(path: Path) -> list[str]:
+    """Load KEY=VALUE lines into os.environ without overriding existing values.
+
+    Returns the key names that were set. Values are never printed or logged.
+    """
+
+    loaded: list[str] = []
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip().removeprefix("export ").strip()
+        value = value.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = value
+            loaded.append(key)
+    return loaded
+
+
+def demo_dose(med: str) -> dict[str, Any]:
+    """Return the seed-data dose for a demo medication (insulin or heparin)."""
+
+    _, doses = _all_doses()
+    return next(dose for dose in doses if dose["med"].casefold() == med.casefold())
+
+
+def _demo_event(case: str) -> dict[str, Any]:
+    if case == "scan":
+        return {"detail-type": ROUTING_SCAN, "detail": {}}
+    if case == "outage":
+        return {
+            "detail-type": OUTAGE_DETECTED,
+            "source": "control",
+            "detail": {"started_at": _all_doses()[0]},
+        }
+    dose = demo_dose(case)
+    return {
+        "detail-type": MED_REQUESTED,
+        "source": "nurse_agent",
+        "detail": {
+            "request_id": build_request_id(dose["room"], dose["med"], dose["due_at"]),
+            "room": dose["room"],
+            "med": dose["med"],
+            "requested_by": "N003",
+        },
+    }
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run a routing demo case locally against the fake or the live model."""
+
+    import argparse
+
     try:
         from backend.agents.routing_agent.fake_bedrock import (
             CannedBedrockClient,
             insulin_demo_responses,
         )
-        from backend.tools.deliveries import reset_deliveries
-        from backend.tools.escalation import reset_escalations
+        from backend.tools import deliveries, escalation
     except ModuleNotFoundError:
         from agents.routing_agent.fake_bedrock import (
             CannedBedrockClient,
             insulin_demo_responses,
         )
-        from tools.deliveries import reset_deliveries
-        from tools.escalation import reset_escalations
+        from tools import deliveries, escalation
 
-    reset_deliveries()
-    reset_escalations()
-    insulin_dose = next(
-        dose for dose in get_doses_due() if dose["med"] == "insulin"
+    parser = argparse.ArgumentParser(description="Run the Wardline routing agent.")
+    parser.add_argument(
+        "--live",
+        action="store_true",
+        help="Call real Amazon Bedrock (needs MODEL_ID and AWS credentials).",
     )
+    parser.add_argument(
+        "--case",
+        choices=("insulin", "heparin", "scan", "outage"),
+        default="insulin",
+        help="Demo case to run (fake mode supports insulin only).",
+    )
+    parser.add_argument(
+        "--env-file",
+        type=Path,
+        help="Optional KEY=VALUE file, e.g. one holding AWS_BEARER_TOKEN_BEDROCK.",
+    )
+    args = parser.parse_args(argv)
+
+    if args.env_file is not None:
+        loaded = load_env_file(args.env_file)
+        print(f"Loaded env keys: {', '.join(loaded) or '(none new)'}", flush=True)
+
+    # Real email/events only when the caller explicitly sets these to 0.
+    os.environ.setdefault("NOTIFY_DRY_RUN", "1")
+    os.environ.setdefault("DRY_RUN", "1")
+    deliveries.reset_deliveries()
+    escalation.reset_escalations()
+    reset_routing_state()
+    event = _demo_event(args.case)
+
+    if args.live:
+        if not os.getenv("MODEL_ID"):
+            parser.error("MODEL_ID must be set for --live runs.")
+        model_id: str | None = None
+        client: Any | None = None
+    else:
+        if args.case != "insulin":
+            parser.error("Fake mode only scripts the insulin case; use --live.")
+        model_id = "local-fake-model"
+        client = CannedBedrockClient(
+            insulin_demo_responses(demo_dose("insulin")["due_at"])
+        )
+
     result = handle_routing_event(
-        {
-            "detail-type": MED_REQUESTED,
-            "detail": {
-                "request_id": "304-insulin-local",
-                "room": "304",
-                "med": "insulin",
-                "requested_by": "nurse-kim",
-            },
-        },
-        model_id="local-fake-model",
-        bedrock_client=CannedBedrockClient(
-            insulin_demo_responses(insulin_dose["due_at"])
-        ),
+        event,
+        model_id=model_id,
+        bedrock_client=client,
+        feed_logger=PrintingAgentFeed(),
     )
-    print(json.dumps(result, indent=2, sort_keys=True))
+    summary = {
+        **result,
+        "deliveries": deliveries.list_deliveries(),
+        "escalations": list(escalation._ESCALATION_STORE.values()),
+    }
+    print(json.dumps(summary, indent=2, sort_keys=True))
+    return 0
 
 
 if __name__ == "__main__":
-    _local_demo()
+    raise SystemExit(main())
