@@ -76,6 +76,10 @@ ul, ol { padding: 0; list-style: none; }
 button, input { font: inherit; color: inherit; }
 a { color: inherit; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* the browser's own surfaces take the palette too */
+::selection { background: var(--accent); color: #fff; }
+html { scrollbar-color: var(--control) var(--ground); caret-color: var(--accent); }
+p, .esc-reason, .step-result { text-wrap: pretty; }
 .num, time { font-variant-numeric: tabular-nums; }
 .muted { color: var(--muted); }
 .neg { color: var(--negative); }
@@ -107,7 +111,8 @@ a { color: inherit; }
 .pill.neg { background: var(--pill-negative-bg); color: var(--pill-negative-ink); }
 .pill.warn { background: var(--pill-warning-bg); color: var(--pill-warning-ink); }
 
-.empty { padding: 16px; border: 1px dashed var(--control); border-radius: var(--radius-card); color: var(--muted); }
+/* an empty section keeps its frame and header and says one sentence; no box inside the box */
+.empty { padding: 10px 0; color: var(--muted); text-wrap: pretty; }
 .skeleton { display: block; height: 16px; border-radius: 4px; background: var(--raised); }
 .skeleton.short { width: 40%; height: 14px; margin-top: 8px; }
 .skeleton-row { padding: 14px 0; }
@@ -158,9 +163,45 @@ a { color: inherit; }
 .row + .row { border-top: 1px solid var(--rule); }
 .row-name { flex: 1; min-width: 0; font-weight: 500; }
 .row-meta { margin-top: 2px; color: var(--muted); font-size: var(--fs-small); }
-.esc { align-items: flex-start; }
-.esc .icon { margin-top: 2px; }
-.esc-reason { font-weight: 500; }
+/* Needs a human: full width above the board. Each open escalation is one block on a dark tint of
+   the negative hue, with its icon and words; nothing else on the screen is red. */
+.escalations { margin-bottom: var(--gap); }
+.esc-none { display: flex; align-items: center; gap: 8px; min-height: var(--target); }
+.esc-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); gap: 12px; }
+.esc { display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px; border-radius: var(--radius-card); background: var(--pill-negative-bg); }
+.esc .icon { margin-top: 3px; }
+.esc-reason { font-size: 17px; font-weight: 600; }
+.run-toggle { margin-top: 4px; font-size: var(--fs-small); }
+
+/* ---------- status motion (dashboard only; the nurse view stays still) ----------
+   A dot is still for a settled state and pulses while something is under way: a working agent run,
+   a nurse who hasn't replied. A ring that grows and fades, transform and opacity only. */
+.run-agent { display: inline-flex; align-items: center; gap: 8px; }
+.dot { position: relative; display: inline-block; flex: none; width: 10px; height: 10px; border-radius: 50%; background: currentColor; }
+.dot-pos { color: var(--positive); }
+.dot-neg { color: var(--negative); }
+.dot-muted { color: var(--muted); }
+.pill .dot { width: 8px; height: 8px; }
+.dot-pulse::after, .dot-burst::after { content: ""; position: absolute; inset: 0; border-radius: 50%; background: currentColor; }
+.dot-pulse::after { animation: dot-ring 1.6s cubic-bezier(0.16, 1, 0.3, 1) infinite; }
+.dot-burst::after { animation: dot-ring 0.9s cubic-bezier(0.16, 1, 0.3, 1) 2; }
+@keyframes dot-ring { from { transform: scale(1); opacity: 0.6; } to { transform: scale(3); opacity: 0; } }
+.page-hidden .dot-pulse::after { animation-play-state: paused; }
+
+/* a run that arrives after the first load fades in on a raised ground that settles */
+.run-new { animation: run-arrive 1.2s cubic-bezier(0.16, 1, 0.3, 1) both; }
+@keyframes run-arrive { from { opacity: 0; background: var(--raised); } 35% { opacity: 1; background: var(--raised); } to { background: transparent; } }
+
+/* nurses reached: the share confirmed, filled by transform so nothing reflows */
+.reach-track { height: 4px; margin: 4px 0 8px; border-radius: 999px; background: var(--raised); overflow: hidden; }
+.reach-fill { display: block; height: 100%; background: var(--positive); transform-origin: left center; transition: transform 500ms cubic-bezier(0.16, 1, 0.3, 1); }
+
+@media (prefers-reduced-motion: reduce) {
+  /* no rings or travel; the dot's colour and the words carry the state */
+  .dot-pulse::after, .dot-burst::after { animation: none; opacity: 0; }
+  .reach-fill { transition: none; }
+  .run-new { animation-duration: 0.6s; }
+}
 .delivery { flex-wrap: wrap; }
 .delivery-main { flex: 1 1 220px; min-width: 0; }
 .delivery-side { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
@@ -169,7 +210,7 @@ a { color: inherit; }
 
 /* the feed: newest run first, each a timestamped chain of steps. Its list scrolls inside the
    panel, so the panel takes the right column's height and new rows never move the page */
-.feed { display: flex; flex-direction: column; min-height: 560px; }
+.feed { display: flex; flex-direction: column; min-height: 360px; }
 .feed-scroll { position: relative; flex: 1; min-height: 0; overflow: auto; margin-right: -12px; padding-right: 12px; }
 .feed-scroll > * { width: 100%; }
 @media (min-width: 1101px) { .feed-scroll > .runs { position: absolute; inset: 0 12px auto 0; width: auto; } }
@@ -195,6 +236,9 @@ a { color: inherit; }
 .control-card h2 { color: var(--text); font-weight: 600; }
 .control-card .btn { justify-self: start; }
 .hint { color: var(--muted); font-size: var(--fs-small); }
+.confirm { display: grid; gap: 12px; padding: 16px; border-radius: var(--radius-card); background: var(--pill-negative-bg); }
+.confirm-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.confirm code { font: 600 0.95em ui-monospace, "SF Mono", Menlo, monospace; }
 .last-action .row { min-height: 40px; }
 .raw summary { min-height: var(--target); display: flex; align-items: center; cursor: pointer; color: var(--muted); }
 .raw pre { margin: 0; padding: 16px; overflow: auto; border-radius: var(--radius-card); background: var(--raised); font: 13px/1.5 ui-monospace, "SF Mono", Menlo, monospace; }
@@ -205,7 +249,6 @@ a { color: inherit; }
 @media (max-width: 1100px) {
   .board > .feed, .board > .side { grid-column: 1 / -1; }
   .board > .side { order: -1; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .board > .side > :first-child { grid-column: 1 / -1; }
   .feed { min-height: 0; }
 }
 @media (max-width: 860px) {

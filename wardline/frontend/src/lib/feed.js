@@ -57,8 +57,10 @@ export function groupRuns(feed = []) {
       run.steps.push({ id: event.ts, event })
     }
   }
-  // The escalate tool step already says what escalation_created says.
   for (const run of runs) {
+    // event_published is plumbing (the bus), not a decision a nurse needs to read.
+    run.steps = run.steps.filter((s) => s.event?.action !== 'event_published')
+    // The escalate tool step already says what escalation_created says.
     if (run.steps.some((s) => s.tool === 'escalate')) {
       run.steps = run.steps.filter((s) => s.event?.action !== 'escalation_created')
     }
@@ -164,8 +166,6 @@ function describeEvent({ action, detail = {} }) {
   switch (action) {
     case 'escalation_created':
       return { text: `Escalated to the ${detail.to_role || 'charge'} nurse`, result: detail.reason || '', tone: 'neg' }
-    case 'event_published':
-      return { text: `Published ${detail.detail_type}`, result: detail.room ? `Room ${detail.room}` : '', tone: null }
     case 'event_publish_failed':
       return { text: `Couldn’t publish ${detail.detail_type}`, result: detail.error_type || '', tone: 'neg' }
     case 'scan_dose_unhandled':

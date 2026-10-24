@@ -1,8 +1,9 @@
 // Charge nurse's dashboard. GET /dashboard every 3 s (CLAUDE.md section 7).
-// The screen's question: what are the agents doing, and what needs a human right now?
-// The agent feed is the largest block; escalations lead the right column.
+// The screen's question: what needs a human right now, and what are the agents doing?
+// Escalations lead in a full-width strip that is always there (so a new one never moves the page
+// further than its own row); the agent feed is the largest block under it.
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Shell from '../components/Shell.jsx'
 import Icon from '../components/Icon.jsx'
 import DeliveryPill from '../components/DeliveryPill.jsx'
@@ -19,6 +20,14 @@ export default function Dashboard() {
   const names = useMemo(() => runnerNames(feed), [feed])
   const down = data?.system?.status === 'down'
 
+  // The status pulses are loops: stop them while the tab is hidden.
+  useEffect(() => {
+    const sync = () => document.documentElement.classList.toggle('page-hidden', document.hidden)
+    sync()
+    document.addEventListener('visibilitychange', sync)
+    return () => document.removeEventListener('visibilitychange', sync)
+  }, [])
+
   return (
     <Shell current="dashboard">
       <SystemBanner system={data?.system} now={now} loading={!data && !error} />
@@ -29,10 +38,10 @@ export default function Dashboard() {
         </div>
         <Freshness updatedAt={updatedAt} error={error} onRetry={refresh} />
       </header>
+      <EscalationsPanel items={data?.escalations} down={down} now={now} />
       <div className="board">
-        <FeedPanel runs={runs} names={names} loading={!data && !error} failed={!data && error} />
+        <FeedPanel runs={runs} names={names} loading={!data && !error} failed={!data && error} working={down && !error} offline={Boolean(error)} />
         <div className="side">
-          <EscalationsPanel items={data?.escalations} down={down} now={now} />
           <StaffPanel staff={data?.staff} down={down} />
           <DeliveriesPanel items={data?.deliveries} names={names} now={now} onChange={refresh} />
         </div>
@@ -104,14 +113,37 @@ function Freshness({ updatedAt, error, onRetry }) {
 // The agent feed: each run is one agent's reasoning, step by step
 // ---------------------------------------------------------------------------
 
-function FeedPanel({ runs, names, loading, failed }) {
-  const events = runs.reduce((n, r) => n + Math.max(1, r.steps.length), 0)
+// A status dot: still for a settled state, pulsing while something is under way. The words next to
+// it always say the same thing, so the dot is never the only signal.
+function Dot({ tone = 'muted', pulse = false, burst = false }) {
+  return <span className={`dot dot-${tone}${pulse ? ' dot-pulse' : ''}${burst ? ' dot-burst' : ''}`} aria-hidden="true" />
+}
+
+// Rows that arrive after the first successful load (whatever it showed, even nothing) stay marked
+// for ARRIVAL_MS, long enough for their fade to finish across the screen's one-second re-renders.
+const ARRIVAL_MS = 1500
+
+function useArrivals(ids, ready) {
+  const seen = useRef(null)
+  const arrivedAt = useRef(new Map())
+  const now = Date.now()
+  if (seen.current) for (const id of ids) if (!seen.current.has(id) && !arrivedAt.current.has(id)) arrivedAt.current.set(id, now)
+  useEffect(() => { if (ready) seen.current = new Set(ids) })
+  return new Set(ids.filter((id) => now - (arrivedAt.current.get(id) ?? -Infinity) < ARRIVAL_MS))
+}
+
+function FeedPanel({ runs, names, loading, failed, working, offline }) {
+  const [opened, setOpened] = useState(() => new Set())
+  const toggle = (id) => setOpened((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n })
+  const arrived = useArrivals(runs.map((r) => r.id), !loading && !failed)
   return (
     <section className="panel feed" aria-labelledby="feed-title">
       <header>
         <h2 id="feed-title">Agent activity</h2>
         <span className="meta">
-          <Icon name="activity" size={16} /> {runs.length ? `${plural(runs.length, 'run')} · ${plural(events, 'step')}` : 'Live'}
+          {offline
+            ? <><Dot tone="neg" /> Not updating</>
+            : <><Dot tone="pos" pulse={working} /> {working ? 'Agents working' : 'Live'}{runs.length ? ` · ${plural(runs.length, 'run')}` : ''}</>}
         </span>
       </header>
       <div className="feed-scroll">
@@ -121,60 +153,72 @@ function FeedPanel({ runs, names, loading, failed }) {
           <p className="empty">No agent activity yet. When systems go down, every agent decision appears here as it happens.</p>
         )}
         <ol className="runs">
-          {runs.map((run) => <Run key={run.id} run={run} names={names} />)}
+          {runs.map((run) => <Run key={run.id} run={run} names={names} isNew={arrived.has(run.id)} opened={opened.has(run.id)} onToggle={() => toggle(run.id)} />)}
         </ol>
       </div>
     </section>
   )
 }
 
-function Run({ run, names }) {
+// A finished run that needed nobody collapses to its outcome; working, failed and flagged runs
+// (an escalation, a STOP, a refusal) stay open, because those are the ones to read.
+function Run({ run, names, isNew, opened, onToggle }) {
+  const arrive = isNew ? ' run-new' : ''
   if (run.status === 'single') {
     const { text, result, tone } = describeStep(run.steps[0], names)
     return (
-      <li className={`run run-single${tone === 'neg' ? ' run-flag' : ''}`}>
+      <li className={`run run-single${tone === 'neg' ? ' run-flag' : ''}${arrive}`}>
         <time className="run-time num" dateTime={run.started}>{clockSeconds(run.started)}</time>
         <div className="run-body">
-          <p className="run-head"><strong>{agentLabel(run.agent)}</strong></p>
+          <p className="run-head"><span className="run-agent"><Dot tone={tone === 'neg' ? 'neg' : 'muted'} /><strong>{agentLabel(run.agent)}</strong></span></p>
           <Step text={text} result={result} tone={tone} at={run.started} />
         </div>
       </li>
     )
   }
   const flagged = hasEscalation(run)
+  const described = run.steps.map((step) => ({ id: step.id, ...describeStep(step, names) }))
+  const notable = flagged || run.status !== 'done' || described.some((d) => d.tone === 'neg')
+  const open = notable || opened
   const secs = run.ended ? Math.max(0, Math.round((parseTs(run.ended) - parseTs(run.started)) / 1000)) : null
   return (
-    <li className={`run${flagged ? ' run-flag' : ''}`}>
+    <li className={`run${flagged ? ' run-flag' : ''}${arrive}`}>
       <time className="run-time num" dateTime={run.started}>{clockSeconds(run.started)}</time>
       <div className="run-body">
         <p className="run-head">
-          <strong>{agentLabel(run.agent)}</strong>
+          <span className="run-agent">
+            <Dot tone={run.status === 'failed' || flagged ? 'neg' : 'pos'} pulse={run.status === 'running'} />
+            <strong>{agentLabel(run.agent)}</strong>
+          </span>
           <RunStatus run={run} secs={secs} flagged={flagged} />
         </p>
-        <ol className="steps">
-          {run.steps.map((step) => {
-            const d = describeStep(step, names)
-            return <li key={step.id}><Step {...d} at={run.started} /></li>
-          })}
-        </ol>
+        {open && (
+          <ol className="steps" id={`steps-${run.id}`}>
+            {described.map((d) => <li key={d.id}><Step {...d} at={run.started} /></li>)}
+          </ol>
+        )}
         {run.reply && <p className="run-reply">{localizeTimes(run.reply, run.started)}</p>}
+        {!notable && run.steps.length > 0 && (
+          <button type="button" className="text-btn run-toggle" aria-expanded={open} aria-controls={`steps-${run.id}`} onClick={onToggle}>
+            {open ? 'Hide steps' : `Show ${plural(run.steps.length, 'step')}`}
+          </button>
+        )}
       </div>
     </li>
   )
 }
 
 function RunStatus({ run, secs, flagged }) {
-  if (run.status === 'running') return <span className="run-status"><Icon name="clock" size={16} /> Working · {plural(run.steps.length, 'step')} so far</span>
-  if (run.status === 'failed') return <span className="run-status neg"><Icon name="alert" size={16} /> {run.note}</span>
+  if (run.status === 'running') return <span className="run-status">Working · {plural(run.steps.length, 'step')} so far</span>
+  if (run.status === 'failed') return <span className="run-status neg">{run.note}</span>
   return (
     <span className="run-status">
-      {flagged ? <><Icon name="escalate" size={16} className="neg" /> Handed to a human · </> : <><Icon name="check" size={16} /> Done · </>}
+      {flagged ? 'Handed to a human · ' : 'Done · '}
       {plural(run.steps.length, 'step')}{secs !== null ? ` · ${secs} s` : ''}
     </span>
   )
 }
 
-// Agents write times as ISO or "HH:MM UTC"; `at` dates them so they read in local time.
 function Step({ text, result, tone, at }) {
   return (
     <div className={`step${tone === 'neg' ? ' step-neg' : ''}`}>
@@ -191,18 +235,20 @@ function Step({ text, result, tone, at }) {
 function EscalationsPanel({ items, down, now }) {
   const list = [...(items || [])].sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)))
   return (
-    <section className="panel" aria-labelledby="esc-title">
+    <section className={`panel escalations${list.length ? ' has-open' : ''}`} aria-labelledby="esc-title">
       <header>
         <h2 id="esc-title">Needs a human</h2>
-        <span className="lead num">{items ? `${list.length} open` : ''}</span>
+        {list.length > 0 && <span className="lead num">{list.length} open</span>}
       </header>
-      {!items && <SkeletonRows count={2} />}
+      {!items && <SkeletonRows count={1} />}
       {items && !list.length && (
-        <p className="empty">{down ? 'Nothing needs a human right now. The agents are handling every dose so far.' : 'No escalations.'}</p>
+        <p className="esc-none muted">
+          <Icon name="check" size={16} /> {down ? 'Nothing right now. The agents are handling every dose so far.' : 'Nothing. Systems are up.'}
+        </p>
       )}
-      <ul className="rows">
+      <ul className="esc-list">
         {list.map((e) => (
-          <li key={e.escalation_id} className="row esc">
+          <li key={e.escalation_id} className="esc">
             <Icon name="escalate" className="neg" />
             <div>
               <p className="esc-reason">{localizeTimes(e.reason, e.created_at)}</p>
@@ -220,12 +266,21 @@ function EscalationsPanel({ items, down, now }) {
 function StaffPanel({ staff, down }) {
   const list = [...(staff || [])].sort((a, b) => Number(a.acked) - Number(b.acked) || a.name.localeCompare(b.name))
   const acked = list.filter((s) => s.acked).length
+  // Names that were waiting on the previous poll: when one confirms, its dot rings once.
+  const waiting = useRef(new Set())
+  const justConfirmed = new Set(list.filter((s) => s.acked && waiting.current.has(s.name)).map((s) => s.name))
+  useEffect(() => { waiting.current = new Set(down ? list.filter((s) => !s.acked).map((s) => s.name) : []) })
   return (
     <section className="panel" aria-labelledby="staff-title">
       <header>
         <h2 id="staff-title">Nurses reached</h2>
         <span className="lead num">{staff && down ? `${acked} of ${list.length}` : ''}</span>
       </header>
+      {staff && down && list.length > 0 && (
+        <div className="reach-track" aria-hidden="true">
+          <span className="reach-fill" style={{ transform: `scaleX(${acked / list.length})` }} />
+        </div>
+      )}
       {!staff && <SkeletonRows count={4} />}
       {staff && !list.length && <p className="empty">No nurses on shift in the record.</p>}
       <ul className="rows">
@@ -234,11 +289,11 @@ function StaffPanel({ staff, down }) {
             <Icon name="person" className="muted" />
             <span className="row-name">{s.name}</span>
             {!down ? (
-              <span className="pill">Not alerted</span>
+              <span className="pill"><Dot /> Not alerted</span>
             ) : s.acked ? (
-              <span className="pill pos"><Icon name="check" size={16} /> Confirmed</span>
+              <span className="pill pos"><Dot tone="pos" burst={justConfirmed.has(s.name)} /> Confirmed</span>
             ) : (
-              <span className="pill warn"><Icon name="clock" size={16} /> No reply yet</span>
+              <span className="pill neg"><Dot tone="neg" pulse /> No reply yet</span>
             )}
           </li>
         ))}
@@ -249,28 +304,51 @@ function StaffPanel({ staff, down }) {
 
 const ROWS_SHOWN = 4
 
+const UNDO_SECONDS = 8
+
 function DeliveriesPanel({ items, names, now, onChange }) {
   const [all, setAll] = useState(false)
-  const [busy, setBusy] = useState(null)
+  const [pending, setPending] = useState({}) // request_id -> ms when it will be sent
   const [failed, setFailed] = useState(null)
+  const timers = useRef({})
   const list = [...(items || [])].sort(
     (a, b) => Number(a.status === 'delivered') - Number(b.status === 'delivered') || String(a.due_at).localeCompare(String(b.due_at)),
   )
-  const moving = list.filter((d) => d.status !== 'delivered').length
+  const moving = list.filter((d) => d.status !== 'delivered' && !pending[d.request_id]).length
   const shown = all ? list : list.slice(0, ROWS_SHOWN)
 
-  async function done(id) {
-    setBusy(id)
-    setFailed(null)
+  async function send(id, keepalive = false) {
+    clearTimeout(timers.current[id])
+    delete timers.current[id]
     try {
-      await markDelivered(id)
-      await onChange()
+      await markDelivered(id, { keepalive })
+      if (!keepalive) await onChange()
     } catch {
       setFailed(id)
     } finally {
-      setBusy(null)
+      setPending(({ [id]: _, ...rest }) => rest)
     }
   }
+
+  // The API has no undo, so the call waits UNDO_SECONDS behind an Undo button.
+  function done(id) {
+    setFailed(null)
+    setPending((p) => ({ ...p, [id]: Date.now() + UNDO_SECONDS * 1000 }))
+    timers.current[id] = setTimeout(() => send(id), UNDO_SECONDS * 1000)
+  }
+
+  function undo(id) {
+    clearTimeout(timers.current[id])
+    delete timers.current[id]
+    setPending(({ [id]: _, ...rest }) => rest)
+  }
+
+  // Leaving the page commits what is waiting, so a tap is never silently lost.
+  useEffect(() => {
+    const flush = () => { for (const id of Object.keys(timers.current)) send(id, true) }
+    window.addEventListener('pagehide', flush)
+    return () => window.removeEventListener('pagehide', flush)
+  })
 
   return (
     <section className="panel" aria-labelledby="del-title">
@@ -290,15 +368,22 @@ function DeliveriesPanel({ items, names, now, onChange }) {
                   <span className="row-name">{d.med} <span className="muted">to</span> room {d.to_room}</span>
                   <span className="delivery-due num">due {clock(d.due_at)}</span>
                 </p>
-                <p className="row-meta">{[`From ${d.from_location}`, runnerName(d.runner_id, names), d.priority].filter(Boolean).join(' · ')}</p>
+                <p className="row-meta">{[`From ${d.from_location}`, runnerName(d.runner_id, names), d.priority && d.priority[0].toUpperCase() + d.priority.slice(1)].filter(Boolean).join(' · ')}</p>
                 {failed === d.request_id && <p className="row-meta neg" role="alert">Couldn’t mark it delivered. Try again.</p>}
               </div>
               <div className="delivery-side">
-                <DeliveryPill status={d.status} late={late} />
-                {d.status !== 'delivered' && (
-                  <button type="button" className="btn" disabled={busy === d.request_id} onClick={() => done(d.request_id)}>
-                    {busy === d.request_id ? 'Saving…' : 'Mark delivered'}
-                  </button>
+                {pending[d.request_id] ? (
+                  <>
+                    <span className="pill pos"><Icon name="check" size={16} /> Delivered · saving in {Math.max(0, Math.ceil((pending[d.request_id] - now) / 1000))} s</span>
+                    <button type="button" className="btn" onClick={() => undo(d.request_id)}>Undo</button>
+                  </>
+                ) : (
+                  <>
+                    <DeliveryPill status={d.status} late={late} />
+                    {d.status !== 'delivered' && (
+                      <button type="button" className="btn" onClick={() => done(d.request_id)}>Mark delivered</button>
+                    )}
+                  </>
                 )}
               </div>
             </li>
