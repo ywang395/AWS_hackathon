@@ -12,7 +12,7 @@ import DeliveryPill from '../components/DeliveryPill.jsx'
 import ThemeToggle from '../components/ThemeToggle.jsx'
 import { ApiError, chat } from '../api.js'
 import { useNow } from '../lib/hooks.js'
-import { age, clock, dob, isOverdue, localizeTimes, plural, relative, runnerName } from '../lib/format.js'
+import { age, clock, dob, isOverdue, localizeTimes, plural, relative, runnerName, stripMarkdown } from '../lib/format.js'
 
 const QUICK = ['What’s due in the next hour?', 'Which of my patients have allergies?']
 
@@ -438,7 +438,7 @@ function Message({ message, snapshotTs, rooms, onRoom }) {
       <p className="message-who num">{mine ? 'You' : 'Wardline'} · {clock(message.ts)}</p>
       <p className="message-text">
         {message.stop && <Icon name="stop" className="neg" />}
-        {mine ? message.text : linkRooms(localizeTimes(message.text, snapshotTs), rooms, onRoom)}
+        {mine ? message.text : linkRooms(localizeTimes(stripMarkdown(message.text), snapshotTs), rooms, onRoom)}
       </p>
     </li>
   )

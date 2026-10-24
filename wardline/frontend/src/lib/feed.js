@@ -6,7 +6,7 @@
 // A run groups one agent's events from agent_started to its end. Events outside a run, or whose
 // agent_started fell outside the 50-row window, stand alone.
 
-import { clock, DELIVERY_STATUS, plural, runnerName } from './format.js'
+import { clock, DELIVERY_STATUS, plural, runnerName, stripMarkdown } from './format.js'
 
 const AGENTS = {
   routing_agent: 'Routing agent',
@@ -81,6 +81,30 @@ export function runnerNames(feed = []) {
 
 export const hasEscalation = (run) =>
   run.steps.some((s) => s.tool === 'escalate' || s.event?.action === 'escalation_created')
+
+// The model's final reply is free text and sometimes arrives as markdown with
+// bold, backticks and bullet lists, or as a long block of reasoning. The feed
+// shows it verbatim, so clean it to short plain lines: strip markdown, keep the
+// "Records as of …" summary, and drop per-dose reasoning bullets the steps
+// above already cover.
+export function cleanReply(reply = '') {
+  const stripMd = (s) => stripMarkdown(s).replace(/\s+/g, ' ').trim()
+
+  // Split into lines, drop empty and per-dose reasoning bullets (Dose N …, Room … skip).
+  const lines = reply
+    .split(/\r?\n/)
+    .map(stripMd)
+    .filter(Boolean)
+    .filter((l) => !/^dose\s*\d/i.test(l))
+    .filter((l) => !/skip\b/i.test(l))
+
+  // Prefer the summary sentence (the one that states the outcome); fall back to
+  // the first/last non-bullet line. Keep it to at most two short lines.
+  const summary = lines.filter((l) => !/^records as of/i.test(l))
+  const records = lines.find((l) => /^records as of/i.test(l))
+  const kept = [records, summary[summary.length - 1]].filter(Boolean)
+  return (kept.length ? kept : lines).slice(0, 2)
+}
 
 // One step as { text, result, tone }: tone 'neg' marks what a human should notice.
 export function describeStep(step, names = {}) {
