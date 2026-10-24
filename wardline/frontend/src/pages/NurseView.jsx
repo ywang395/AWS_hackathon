@@ -15,6 +15,13 @@ import { useNow } from '../lib/hooks.js'
 import { age, clock, dob, isOverdue, localizeTimes, plural, relative, runnerName } from '../lib/format.js'
 
 const QUICK = ['What’s due in the next hour?', 'Which of my patients have allergies?']
+
+// A dose log in one fixed form, so the nurse agent's check_recent_doses + log_event run on exactly
+// what the nurse confirmed (identity included), not on a free-text guess. Still a plain /chat message.
+const doseMessage = (p, m, at, checkedBy) =>
+  `Log med_given for room ${p.room}: ${m.med} ${m.dose} ${m.route} given at ${at}. ` +
+  `Patient identity checked on the wristband: ${p.name}, DOB ${p.dob}.` +
+  (checkedBy ? ` Double-checked by ${checkedBy}.` : '')
 // The nurse prompt says "STOP" in capitals for a repeat dose (CLAUDE.md section 12); the model may
 // not lead with it, so any capital STOP interrupts.
 const isStop = (reply) => /\bSTOP\b/.test(reply || '')
@@ -148,6 +155,7 @@ function Ward({ token, session, setSession, onLocked }) {
   const [stop, setStop] = useState(null)
   const [refreshing, setRefreshing] = useState(false)
   const [refreshError, setRefreshError] = useState('')
+  const [logging, setLogging] = useState(null) // { patient, med } while the dose sheet is open
   const inputRef = useRef(null)
   const endRef = useRef(null)
 
@@ -162,7 +170,7 @@ function Ward({ token, session, setSession, onLocked }) {
 
   async function send(text) {
     const message = text.trim()
-    if (!message || sending) return
+    if (!message || sending) return false
     setSending(true)
     setSendError('')
     setMessages((m) => [...m, { id: m.length, role: 'nurse', text: message, ts: Date.now() }])
@@ -172,15 +180,42 @@ function Ward({ token, session, setSession, onLocked }) {
       applyResponse(data)
       setMessages((m) => [...m, { id: m.length, role: 'assistant', text: data.reply, ts: Date.now(), stop: isStop(data.reply) }])
       if (isStop(data.reply)) setStop(data.reply)
+      return true
     } catch (err) {
-      if (err instanceof ApiError && err.status === 401) return onLocked()
+      if (err instanceof ApiError && err.status === 401) { onLocked(); return false }
       setMessages((m) => m.slice(0, -1))
       setDraft(message)
       setSendError('Couldn’t reach Wardline. Your message wasn’t sent. Check your signal and try again.')
+      return false
     } finally {
       setSending(false)
     }
   }
+
+  // Confirmed in the dose sheet: send the fixed-form log and show the answer (or STOP) in chat.
+  async function logDose(patient, med, checkedBy) {
+    setTab('chat')
+    const ok = await send(doseMessage(patient, med, clock(new Date()), checkedBy.trim()))
+    if (ok) setLogging(null)
+    return ok
+  }
+
+  const openLog = (room, medName) => {
+    const patient = patients.find((p) => String(p.room) === String(room))
+    const med = patient?.meds?.find((m) => m.med === medName)
+    if (patient && med) setLogging({ patient, med })
+  }
+
+  // A room named in a reply opens that patient's card, so allergies and DOB are one tap away.
+  function showRoom(room) {
+    setTab('patients')
+    requestAnimationFrame(() => {
+      const card = document.getElementById(`card-${room}`)
+      card?.scrollIntoView({ block: 'start' })
+      card?.focus()
+    })
+  }
+  const myRooms = useMemo(() => new Set(patients.map((p) => String(p.room))), [patients])
 
   async function refresh() {
     setRefreshing(true)
@@ -213,13 +248,13 @@ function Ward({ token, session, setSession, onLocked }) {
             </button>
           </div>
           {refreshError && <p className="form-error" role="alert"><Icon name="alert" /> {refreshError}</p>}
-          <DueNext patients={patients} deliveries={session.deliveries || []} />
+          <DueNext patients={patients} deliveries={session.deliveries || []} onLog={openLog} />
           <h2 className="section-title">Patients</h2>
           {!patients.length && <p className="empty">No patients are assigned to you in the record. Ask the charge nurse.</p>}
           <ul className="cards">
             {patients.map((p) => (
               <li key={p.patient_id || p.room}>
-                <PatientCard patient={p} deliveries={session.deliveries || []} onAsk={() => askAbout(p.room)} />
+                <PatientCard patient={p} deliveries={session.deliveries || []} onAsk={() => askAbout(p.room)} onLog={(m) => setLogging({ patient: p, med: m })} />
               </li>
             ))}
           </ul>
@@ -228,11 +263,14 @@ function Ward({ token, session, setSession, onLocked }) {
         <section className="ward-chat" id="panel-chat" aria-labelledby="chat-title">
           <h2 id="chat-title" className="section-title">Ask Wardline</h2>
           <ol className="messages" aria-live="polite">
-            {messages.map((m) => <Message key={m.id} message={m} snapshotTs={session.snapshot_ts} />)}
+            {messages.map((m) => <Message key={m.id} message={m} snapshotTs={session.snapshot_ts} rooms={myRooms} onRoom={showRoom} />)}
             {sending && <li className="message message-pending">Wardline is checking the records…</li>}
             <li ref={endRef} aria-hidden="true" className="messages-end" />
           </ol>
           <form className="composer" onSubmit={(e) => { e.preventDefault(); send(draft) }}>
+            {messages.length < 2 && (
+              <p className="guide">Ask about your patients in your own words. To record a dose, use Log dose on the patient’s card.</p>
+            )}
             {messages.length < 2 && (
               <div className="quick">
                 {QUICK.map((q) => <button key={q} type="button" className="chip" onClick={() => send(q)} disabled={sending}>{q}</button>)}
@@ -259,22 +297,32 @@ function Ward({ token, session, setSession, onLocked }) {
         </section>
       </div>
 
-      <nav className="tabbar" aria-label="Nurse view">
-        <button type="button" aria-pressed={tab === 'patients'} aria-controls="panel-patients" onClick={() => setTab('patients')}>
+      <nav className="tabbar" aria-label="Nurse view" role="tablist">
+        <button type="button" role="tab" aria-selected={tab === 'patients'} aria-controls="panel-patients" onClick={() => setTab('patients')}>
           <Icon name="list" /> Patients
         </button>
-        <button type="button" aria-pressed={tab === 'chat'} aria-controls="panel-chat" onClick={() => setTab('chat')}>
+        <button type="button" role="tab" aria-selected={tab === 'chat'} aria-controls="panel-chat" onClick={() => setTab('chat')}>
           <Icon name="chat" /> Ask Wardline
         </button>
       </nav>
 
+      {logging && !stop && (
+        <DoseSheet
+          patient={logging.patient}
+          med={logging.med}
+          sending={sending}
+          error={sendError}
+          onConfirm={(checkedBy) => logDose(logging.patient, logging.med, checkedBy)}
+          onCancel={() => setLogging(null)}
+        />
+      )}
       {stop && <StopScreen text={stop} snapshotTs={session.snapshot_ts} onClose={() => setStop(null)} />}
     </div>
   )
 }
 
 // The brief: every patient's next dose in time order, with its delivery when one is coming.
-function DueNext({ patients, deliveries }) {
+function DueNext({ patients, deliveries, onLog }) {
   const now = useNow(30_000)
   const doses = patients
     .flatMap((p) => (p.meds || []).map((m) => ({ ...m, room: p.room, name: p.name })))
@@ -299,6 +347,9 @@ function DueNext({ patients, deliveries }) {
                     : relative(m.due_at, now) && <span className="muted num">{relative(m.due_at, now)}</span>}
                 </p>
                 {delivery && <DeliveryLine delivery={delivery} now={now} />}
+                <button type="button" className="btn btn-quiet btn-log" onClick={() => onLog(m.room, m.med)}>
+                  <Icon name="check" /> Log dose given
+                </button>
               </div>
             </li>
           )
@@ -322,12 +373,12 @@ function DeliveryLine({ delivery, now }) {
   )
 }
 
-function PatientCard({ patient: p, deliveries, onAsk }) {
+function PatientCard({ patient: p, deliveries, onAsk, onLog }) {
   const now = useNow(30_000)
   const v = p.vitals || {}
   const allergies = p.allergies || []
   return (
-    <article className="card" aria-labelledby={`room-${p.room}`}>
+    <article className="card" id={`card-${p.room}`} tabIndex={-1} aria-labelledby={`room-${p.room}`}>
       <header className="card-head">
         <h3 id={`room-${p.room}`}>Room {p.room}</h3>
         {(p.meds || []).some((m) => m.critical) && <span className="pill warn"><Icon name="critical" size={16} /> Critical med</span>}
@@ -358,6 +409,9 @@ function PatientCard({ patient: p, deliveries, onAsk }) {
                 <span className="med-due num">due {clock(m.due_at)}</span>
               </p>
               {delivery && <DeliveryLine delivery={delivery} now={now} />}
+              <button type="button" className="btn btn-quiet btn-log" onClick={() => onLog(m)}>
+                <Icon name="check" /> Log dose given
+              </button>
             </li>
           )
         })}
@@ -377,16 +431,109 @@ function PatientCard({ patient: p, deliveries, onAsk }) {
   )
 }
 
-function Message({ message, snapshotTs }) {
+function Message({ message, snapshotTs, rooms, onRoom }) {
   const mine = message.role === 'nurse'
   return (
     <li className={`message ${mine ? 'message-mine' : 'message-wardline'}${message.stop ? ' message-stop' : ''}`}>
       <p className="message-who num">{mine ? 'You' : 'Wardline'} · {clock(message.ts)}</p>
       <p className="message-text">
         {message.stop && <Icon name="stop" className="neg" />}
-        {mine ? message.text : localizeTimes(message.text, snapshotTs)}
+        {mine ? message.text : linkRooms(localizeTimes(message.text, snapshotTs), rooms, onRoom)}
       </p>
     </li>
+  )
+}
+
+// "room 304" / "rooms 301 and 302" in a reply become buttons to those patients' cards (this nurse's
+// rooms only; any other room number stays plain text).
+function linkRooms(text, rooms, onRoom) {
+  const out = []
+  let last = 0
+  for (const m of text.matchAll(/\b[Rr]ooms?\s+\d{3}(?:(?:,\s*|\s+and\s+)\d{3})*/g)) {
+    out.push(text.slice(last, m.index))
+    let cursor = 0
+    for (const n of m[0].matchAll(/\d{3}/g)) {
+      out.push(m[0].slice(cursor, n.index))
+      out.push(rooms.has(n[0])
+        ? <button key={`${m.index}-${n.index}`} type="button" className="room-link" onClick={() => onRoom(n[0])}>{n[0]}</button>
+        : n[0])
+      cursor = n.index + n[0].length
+    }
+    out.push(m[0].slice(cursor))
+    last = m.index + m[0].length
+  }
+  out.push(text.slice(last))
+  return out
+}
+
+// Modal focus: lock the page behind, keep Tab inside the dialog, focus `first` on open.
+function useModal(ref, first) {
+  useEffect(() => {
+    first.current?.focus()
+    const { overflow } = document.body.style
+    document.body.style.overflow = 'hidden'
+    const trap = (e) => {
+      if (e.key !== 'Tab' || !ref.current) return
+      const items = [...ref.current.querySelectorAll('button, input, [href], [tabindex]:not([tabindex="-1"])')].filter((el) => !el.disabled)
+      if (!items.length) return
+      const [a, z] = [items[0], items[items.length - 1]]
+      if (e.shiftKey && document.activeElement === a) { e.preventDefault(); z.focus() }
+      else if (!e.shiftKey && document.activeElement === z) { e.preventDefault(); a.focus() }
+      else if (!ref.current.contains(document.activeElement)) { e.preventDefault(); a.focus() }
+    }
+    document.addEventListener('keydown', trap)
+    return () => { document.body.style.overflow = overflow; document.removeEventListener('keydown', trap) }
+  }, [ref, first])
+}
+
+// ---------------------------------------------------------------------------
+// Log dose: the two-identifier check before anything is written to the shared log
+// ---------------------------------------------------------------------------
+
+function DoseSheet({ patient: p, med, sending, error, onConfirm, onCancel }) {
+  const ref = useRef(null)
+  const checkRef = useRef(null)
+  const [checked, setChecked] = useState(false)
+  const [checkedBy, setCheckedBy] = useState('')
+  const now = useNow(15_000)
+  useModal(ref, checkRef)
+  useEffect(() => {
+    const esc = (e) => { if (e.key === 'Escape' && !sending) onCancel() }
+    document.addEventListener('keydown', esc)
+    return () => document.removeEventListener('keydown', esc)
+  }, [onCancel, sending])
+  const allergies = p.allergies || []
+  return (
+    <div className="sheet-backdrop">
+      <div ref={ref} className="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
+        <h2 id="sheet-title">Log dose given</h2>
+        <dl className="sheet-facts">
+          <div><dt>Patient</dt><dd><strong>{p.name}</strong></dd></div>
+          <div><dt>Date of birth</dt><dd className="num">{dob(p.dob)}</dd></div>
+          <div><dt>Room</dt><dd className="num">{p.room}</dd></div>
+          <div><dt>Medication</dt><dd><strong>{med.med} {med.dose} {med.route}</strong></dd></div>
+          <div><dt>Due</dt><dd className="num">{clock(med.due_at)}</dd></div>
+          <div><dt>Given at</dt><dd className="num">{clock(now)} (now)</dd></div>
+        </dl>
+        {allergies.length
+          ? <p className="allergy allergy-yes"><Icon name="alert" className="neg" /><span><span className="allergy-label">Allergies</span> <strong>{allergies.join(', ')}</strong></span></p>
+          : <p className="allergy allergy-none"><Icon name="info" /><span>No known allergies</span></p>}
+        <label className="check-row">
+          <input ref={checkRef} type="checkbox" checked={checked} onChange={(e) => setChecked(e.target.checked)} />
+          <span>I checked the name and date of birth on the wristband.</span>
+        </label>
+        <label className="field-label" htmlFor="checked-by">Double-checked by <span className="muted">(optional)</span></label>
+        <input id="checked-by" className="text-input" value={checkedBy} onChange={(e) => setCheckedBy(e.target.value)} autoComplete="off" />
+        {error && <p className="form-error" role="alert"><Icon name="alert" /> {error}</p>}
+        <p className="hint">Wardline checks the shared log for a recent dose first. The paper MAR stays the official record.</p>
+        <div className="sheet-actions">
+          <button type="button" className="btn btn-primary btn-big" disabled={!checked || sending} onClick={() => onConfirm(checkedBy)}>
+            <Icon name="check" /> {sending ? 'Checking the log…' : 'Confirm dose given'}
+          </button>
+          <button type="button" className="btn btn-quiet btn-big" disabled={sending} onClick={onCancel}>Cancel</button>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -395,16 +542,12 @@ function Message({ message, snapshotTs }) {
 // ---------------------------------------------------------------------------
 
 function StopScreen({ text, snapshotTs, onClose }) {
+  const ref = useRef(null)
   const buttonRef = useRef(null)
-  useEffect(() => {
-    buttonRef.current?.focus()
-    const { overflow } = document.body.style
-    document.body.style.overflow = 'hidden'
-    return () => { document.body.style.overflow = overflow }
-  }, [])
+  useModal(ref, buttonRef)
   const detail = localizeTimes(text.replace(/^\s*STOP[:.!]?\s*/i, ''), snapshotTs)
   return (
-    <div className="stop" role="alertdialog" aria-modal="true" aria-labelledby="stop-title" aria-describedby="stop-text">
+    <div ref={ref} className="stop" role="alertdialog" aria-modal="true" aria-labelledby="stop-title" aria-describedby="stop-text">
       <div className="stop-inner">
         <Icon name="stop" size={72} />
         <h2 id="stop-title">STOP</h2>

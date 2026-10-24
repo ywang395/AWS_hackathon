@@ -28,7 +28,7 @@ export class ApiError extends Error {
   }
 }
 
-async function request(method, path, body, timeoutMs = 10_000) {
+async function request(method, path, body, timeoutMs = 10_000, keepalive = false) {
   let status
   let data
   if (isMock) {
@@ -41,6 +41,7 @@ async function request(method, path, body, timeoutMs = 10_000) {
         headers: body ? { 'Content-Type': 'application/json' } : undefined,
         body: body ? JSON.stringify(body) : undefined,
         signal: AbortSignal.timeout(timeoutMs),
+        keepalive,
       })
     } catch {
       throw new ApiError(0, 'Couldn’t reach Wardline.')
@@ -57,4 +58,6 @@ export const chat = (token, pin, message = '') => request('POST', '/chat', { tok
 export const getDashboard = () => request('GET', '/dashboard')
 export const simulateOutage = () => request('POST', '/control/outage', undefined, 30_000)
 export const restoreSystems = () => request('POST', '/control/restore')
-export const markDelivered = (requestId) => request('POST', `/deliveries/${encodeURIComponent(requestId)}/done`)
+// keepalive lets a pending Mark delivered finish while the page closes.
+export const markDelivered = (requestId, { keepalive = false } = {}) =>
+  request('POST', `/deliveries/${encodeURIComponent(requestId)}/done`, undefined, 10_000, keepalive)

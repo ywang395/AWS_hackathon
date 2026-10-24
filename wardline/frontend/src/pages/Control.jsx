@@ -5,15 +5,18 @@ import Shell from '../components/Shell.jsx'
 import Icon from '../components/Icon.jsx'
 import { getDashboard, isMock, restoreSystems, simulateOutage } from '../api.js'
 import { usePoll } from '../lib/hooks.js'
-import { clock, clockSeconds } from '../lib/format.js'
+import { clock, clockSeconds, plural } from '../lib/format.js'
 
 export default function Control() {
   const { data, error } = usePoll(getDashboard, 3000)
   const [busy, setBusy] = useState(null)
   const [last, setLast] = useState(null)
+  const [confirming, setConfirming] = useState(false)
   const status = data?.system?.status
+  const nurses = data?.staff?.length
 
   async function run(kind) {
+    setConfirming(false)
     setBusy(kind)
     try {
       const body = await (kind === 'outage' ? simulateOutage() : restoreSystems())
@@ -42,9 +45,22 @@ export default function Control() {
         <section className="panel control-card" aria-labelledby="c-outage">
           <h2 id="c-outage">Simulate ransomware</h2>
           <p>Marks hospital systems down, emails every on-shift nurse a secure link, and runs the first routing scan.</p>
-          <button type="button" className="btn btn-danger btn-big" disabled={busy !== null || status === 'down'} onClick={() => run('outage')}>
-            <Icon name="alert" /> {busy === 'outage' ? 'Starting the outage…' : 'Simulate ransomware'}
-          </button>
+          {/* Live, this emails real people, so it asks once. Mock mode sends nothing and runs at once. */}
+          {confirming ? (
+            <div className="confirm" role="group" aria-labelledby="confirm-text">
+              <p id="confirm-text"><strong>This emails {nurses ? plural(nurses, 'on-shift nurse') : 'every on-shift nurse'} and writes to the live tables.</strong> Run <code>scripts/reset.py</code> afterwards to clear them.</p>
+              <div className="confirm-actions">
+                <button type="button" className="btn btn-danger btn-big" onClick={() => run('outage')}>
+                  <Icon name="alert" /> Yes, start the outage
+                </button>
+                <button type="button" className="btn btn-big" onClick={() => setConfirming(false)}>Cancel</button>
+              </div>
+            </div>
+          ) : (
+            <button type="button" className="btn btn-danger btn-big" disabled={busy !== null || status === 'down'} onClick={() => (isMock ? run('outage') : setConfirming(true))}>
+              <Icon name="alert" /> {busy === 'outage' ? 'Starting the outage…' : 'Simulate ransomware'}
+            </button>
+          )}
           {status === 'down' && <p className="hint">Systems are already down. Restore them first to run the demo again.</p>}
         </section>
 
