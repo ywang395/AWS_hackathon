@@ -1,19 +1,19 @@
 [
   {
     "nurse_id": "N001",
-    "name": "Dana Whitfield",
-    "email": "dana.whitfield@example.com",
-    "pin_hash": "pbkdf2_sha256$390000$980d6542f269c49e73a83e8f21ad2c60$574ba990c10accda4512bca5ec73a76a69a05b40a713d59f74548a5b6b15d10b",
-    "unit": "Unit 4-6",
+    "name": "Lin Wang",
+    "email": "lintu.wang@sjsu.edu",
+    "pin_hash": "pbkdf2_sha256$390000$96f7d91c69b0c821764916a9726fba74$6e9322939fb09e5ac8b81621fb4bee41d4dc5a41a117302530d1387e11a5ea7f",
+    "unit": "Unit 4",
     "role": "charge",
     "on_shift": true,
-    "location": "Unit 4-6 Charge Station"
+    "location": "Unit 4 Charge Station"
   },
   {
     "nurse_id": "N002",
-    "name": "Kim Alvarez",
-    "email": "kim.alvarez@example.com",
-    "pin_hash": "pbkdf2_sha256$390000$d6a28f878fc77de1e4cc49ec2d5829e3$619715ed22d5079ce2e6511c7a49f782accaba0afe79ad1c7b2e65672c316b49",
+    "name": "Alisher Nurmatov",
+    "email": "alisher.nurmatov@sjsu.edu",
+    "pin_hash": "pbkdf2_sha256$390000$1dc38319793ab1a8559f039819525957$5712e182aef25b8d85b097c51f02579ae3f01de00a9fc23812a85f7e3ed0a671",
     "unit": "Unit 4",
     "role": "nurse",
     "on_shift": true,
@@ -21,9 +21,9 @@
   },
   {
     "nurse_id": "N003",
-    "name": "Jordan Lee",
-    "email": "jordan.lee@example.com",
-    "pin_hash": "pbkdf2_sha256$390000$59f0174f223cda123f0d6d48db74837f$9feb05cb9456d147376ba20223092490837be06bbf5a61042c414fbcd7c301db",
+    "name": "Salih Algosaibi",
+    "email": "algosalih@gmail.com",
+    "pin_hash": "pbkdf2_sha256$390000$16da59108c33cda3d5bf8fc2b9629e7d$6b5f0c9af33dc80f624eb5d341bc48a4fc0153858c01b3e891b2f41117ffbdc1",
     "unit": "Unit 4",
     "role": "nurse",
     "on_shift": true,
@@ -31,9 +31,9 @@
   },
   {
     "nurse_id": "N004",
-    "name": "Sam Okafor",
-    "email": "sam.okafor@example.com",
-    "pin_hash": "pbkdf2_sha256$390000$a6c388df2be534ece56e4ced571ef700$0fce9b8fa9abfdc475eaa887e9bb5829ddfa98e43bb8d8f6327d8954dfd64f11",
+    "name": "Sunny Lam",
+    "email": "yeungkongsunny.lam@sjsu.edu",
+    "pin_hash": "pbkdf2_sha256$390000$36522a9a10a6f8556272664f6693523e$ddd2d418c8a656be596810959016261aceeaaa6b730c655da57c1bbe317c3947",
     "unit": "Unit 6",
     "role": "nurse",
     "on_shift": true,
@@ -43,7 +43,7 @@
     "nurse_id": "N005",
     "name": "Marcus Webb",
     "email": "marcus.webb@example.com",
-    "pin_hash": "pbkdf2_sha256$390000$385efc3d1a7aefb36651a783e5fb370a$b415323dd03b8f26329a16937ae8a4b6dbf071634f292df9d9b277a941d2c064",
+    "pin_hash": "pbkdf2_sha256$390000$e2451138c71d3fa8479479b145e4b576$10864608cd7bb8ed44b0350ae729e20a8106fdd5d51764f0751e26c7eec3d88a",
     "unit": "Central Pharmacy",
     "role": "runner",
     "on_shift": true,
@@ -53,10 +53,70 @@
     "nurse_id": "N006",
     "name": "Priya Nair",
     "email": "priya.nair@example.com",
-    "pin_hash": "pbkdf2_sha256$390000$33b63e6db648ffa1225542619f526972$c194c995a5cc6e2b7c6d9bdc704c96ce0b37e4fe866b8a806357a5dbcbdc931e",
+    "pin_hash": "pbkdf2_sha256$390000$590faccddad20d02ca431dd5b420b17d$78cd64e327858a9750fff6f9892b7d51065e837e3e6c2562e127d51bbffc6c37",
     "unit": "Central Pharmacy",
     "role": "runner",
     "on_shift": true,
     "location": "Central Pharmacy"
+  },
+  {
+    "nurse_id": "N007",
+    "name": "Dana Whitfield",
+    "email": "dana.whitfield@example.com",
+    "pin_hash": "pbkdf2_sha256$390000$9ce54356908c69ddc22aa30a8c62fbff$ec39ada65a51901fe3ad5432c616e31f6358c0081426b11635eb9d05bece0233",
+    "unit": "Unit 4",
+    "role": "nurse",
+    "on_shift": false,
+    "location": "Off shift"
+  },
+  {
+    "nurse_id": "N008",
+    "name": "Kim Alvarez",
+    "email": "kim.alvarez@example.com",
+    "pin_hash": "pbkdf2_sha256$390000$aa84406ff57feb644439bed99fcf9f24$2500e01b8d988f642963d507e4e195b51feff46e8425a4b170b6ae06fa780973",
+    "unit": "Unit 6",
+    "role": "nurse",
+    "on_shift": false,
+    "location": "Off shift"
+  },
+  {
+    "nurse_id": "N009",
+    "name": "Jordan Lee",
+    "email": "jordan.lee@example.com",
+    "pin_hash": "pbkdf2_sha256$390000$d4605cfd90ac06c523ffdc2aa4ca0dcf$1b7f0ad11bb212d304a079f84e961189d4b49d265b6b5c80834169ced0904034",
+    "unit": "Unit 4",
+    "role": "nurse",
+    "on_shift": false,
+    "location": "Off shift"
+  },
+  {
+    "nurse_id": "N010",
+    "name": "Sam Okafor",
+    "email": "sam.okafor@example.com",
+    "pin_hash": "pbkdf2_sha256$390000$f8ed9c6d2dad82866be2dc0a265831db$61402abe4be9f8adba00f8bdd70c8f3a9d9a45c235754b88fbdb9abe864e48f9",
+    "unit": "Unit 6",
+    "role": "nurse",
+    "on_shift": false,
+    "location": "Off shift"
+  },
+  {
+    "nurse_id": "N011",
+    "name": "Rachel Donovan",
+    "email": "rachel.donovan@example.com",
+    "pin_hash": "pbkdf2_sha256$390000$1911191729a7d156540849fd86c1058e$b0a5b9f4c6223a755dadb43607e23a0b3a7098e474dd60c7f4447e8db09d955a",
+    "unit": "Unit 4",
+    "role": "nurse",
+    "on_shift": false,
+    "location": "Off shift"
+  },
+  {
+    "nurse_id": "N012",
+    "name": "Tomas Herrera",
+    "email": "tomas.herrera@example.com",
+    "pin_hash": "pbkdf2_sha256$390000$802e31592c019ac02b769fbc1c9c2903$a2e2c8a1c3dcce95d973923462db2b48f283ec951e684bd99118c1694037c743",
+    "unit": "Unit 6",
+    "role": "nurse",
+    "on_shift": false,
+    "location": "Off shift"
   }
 ]

@@ -18,11 +18,11 @@ from backend.tools.patients import PatientAccessDenied, get_my_patients, get_pat
 
 
 def test_seed_writes_every_fixture_and_floats_round_trip(seeded_dynamo):
-    assert len(seeded_dynamo.Table("Nurses").items) == 6
-    assert len(seeded_dynamo.Table("Patients").items) == 12
+    assert len(seeded_dynamo.Table("Nurses").items) == 12
+    assert len(seeded_dynamo.Table("Patients").items) == 16
     assert len(seeded_dynamo.Table("Inventory").items) == 25
-    kim_304 = db.get_item("patients", patient_id="P304")
-    assert kim_304["vitals"]["temp_f"] == 98.4  # stored as Decimal, read back as float
+    patient_304 = db.get_item("patients", patient_id="P304")
+    assert patient_304["vitals"]["temp_f"] == 99.4  # stored as Decimal, read back as float
 
 
 def test_raw_float_is_rejected_like_real_boto3(fake_dynamo):
@@ -60,9 +60,9 @@ def test_expired_dynamodb_token_is_rejected_and_deleted(seeded_dynamo):
 
 def test_patients_are_scoped_through_the_gsi(seeded_dynamo):
     rooms = sorted(p["room"] for p in get_my_patients("N002"))
-    assert rooms == ["301", "302", "303", "304"]
+    assert rooms == ["305", "306", "307", "308"]
     with pytest.raises(PatientAccessDenied):
-        get_patient("N002", "305")
+        get_patient("N002", "309")
 
 
 def test_downtime_log_keeps_same_second_entries(seeded_dynamo):
@@ -100,6 +100,6 @@ def test_chat_brief_end_to_end_on_dynamodb_acknowledges_the_alert(seeded_dynamo)
 
     response = handle_chat({"token": token, "pin": "1234", "message": ""}, ChatDeps())
 
-    assert [b["room"] for b in response["brief"]] == ["301", "302", "303", "304"]
+    assert [b["room"] for b in response["brief"]] == ["305", "306", "307", "308"]
     assert response["snapshot_ts"] == "2024-01-15T02:05:00Z"
     assert alert_app.check_ack("N002", store=alert_app.get_ack_store()) is True

@@ -52,7 +52,7 @@ def test_dynamodb_go_live_seeds_and_passes_every_check(fake_dynamo, capsys):
     assert "ALL CHECKS PASSED" in out
     assert "[FAIL]" not in out
     # Seed actually populated the fake tables.
-    assert len(fake_dynamo.Table("Patients").items) == 12
+    assert len(fake_dynamo.Table("Patients").items) == 16
     # The verify step cleaned up its test token.
     assert fake_dynamo.Table("Tokens").items == {}
 
@@ -60,7 +60,7 @@ def test_dynamodb_go_live_seeds_and_passes_every_check(fake_dynamo, capsys):
 def test_dynamodb_go_live_dry_run_counts_without_reading(fake_dynamo, capsys):
     assert go_live_dynamodb.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
-    assert "[dry-run] would write 12 items to table 'Patients'" in out
+    assert "[dry-run] would write 16 items to table 'Patients'" in out
     assert "read-back" not in out
     assert fake_dynamo.Table("Patients").items == {}  # dry run writes nothing
 
