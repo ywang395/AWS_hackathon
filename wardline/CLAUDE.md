@@ -158,7 +158,7 @@ Tools bound with server-side context (e.g. `get_my_patients` closes over the ver
 
 | Person | Owns |
 |---|---|
-| **Lin — AWS** | `template.yaml` (SAM), DynamoDB tables, EventBridge bus/rules/Scheduler, SES + **verified demo email addresses**, API Gateway + CORS, S3 hosting, IAM roles, Bedrock model access, deploy pipeline. Also `/control` and `/dashboard` Lambdas. |
+| **Lin — AWS** | `template.yaml` (SAM), DynamoDB tables, EventBridge bus/rules/Scheduler, SES + **verified demo email addresses**, API Gateway + CORS, S3 hosting, Bedrock model access, deploy pipeline. Also `/control` and `/dashboard` Lambdas. **IAM:** no IAM users and no new IAM roles — the workshop account's `WSParticipantRole` denies `iam:CreateUser`/`iam:CreateRole`. Lambda execution roles must reuse an existing role or wait on the operator (see Phase 2 blocker). |
 | **Sunny — Backend (agents core)** | `shared/agent_loop.py`, `shared/events.py`, **routing agent** + tools (`stock.py`, `deliveries.py`), AgentFeed logging, escalation tool |
 | **Alisher — Backend (nurse + alerts)** | `data/*.json` + `scripts/seed.py` (first!), `shared/auth.py`, **nurse agent** (`/chat`, brief, log_event, double-dose check, request_med), **alert agent** (send, ack, resend, escalate) |
 | **Salih — Frontend** | NurseView (brief, patient cards, chat, delivery status), Dashboard (staff acks, escalations, deliveries board, live agent feed), Control page (2 buttons), mock mode, demo visuals |
@@ -194,7 +194,8 @@ Phase 1 (start now)
 > - SES verified sender: `lintuwun@gmail.com` (recipients must also be SES-verified while in sandbox)
 
 Phase 2 (after backend pushes code)
-- [ ] Wire real Lambdas into SAM (agents, `/chat`, `/dashboard`, `/control`)
+- [ ] **BLOCKER — Lambda execution role.** The account denies `iam:CreateRole`, so SAM can't auto-create Lambda roles. Before any Lambda can deploy: either (a) get the operator to grant `iam:CreateRole`/`PassRole` or hand us a pre-made Lambda execution role ARN, or (b) reuse an existing role we're allowed to `PassRole`. Every Lambda below must be given an explicit `Role:` ARN (no implicit role).
+- [ ] Wire real Lambdas into SAM (agents, `/chat`, `/dashboard`, `/control`) — add API routes + EventBridge rule targets (both omitted in the Phase 1 skeleton for the same IAM reason)
 - [ ] `/control/outage` + `/control/restore` Lambdas (`put_events` only)
 - [ ] `/dashboard` Lambda (reads tables, returns §7 shape)
 - [ ] EventBridge Scheduler: 5-min routing scan
