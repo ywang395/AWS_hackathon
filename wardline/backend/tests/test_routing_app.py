@@ -163,6 +163,116 @@ def test_outage_detected_triggers_initial_scan() -> None:
     assert client.requests[0]["inferenceConfig"]
 
 
+class FailingBedrockClient:
+    def converse(self, **request: Any) -> dict[str, Any]:
+        raise RuntimeError("bedrock unavailable")
+
+
+def run_scan(client: Any, publisher: RecordingPublisher, feed: RecordingFeed) -> dict[str, Any]:
+    return handle_routing_event(
+        {"detail-type": "RoutingScan", "detail": {}},
+        model_id="fake-model",
+        bedrock_client=client,
+        feed_logger=feed,
+        event_publisher=publisher,
+    )
+
+
+def test_scan_safety_check_escalates_doses_the_model_skipped() -> None:
+    publisher, feed = RecordingPublisher(), RecordingFeed()
+    # The model looks at the doses, then claims it is done without routing anything.
+    client = CannedBedrockClient(
+        [
+            tool_use("tool-1", "get_doses_due", {}),
+            final_text("Scan complete."),
+            # Targeted retries for insulin and heparin also give up immediately.
+            final_text("Nothing to do."),
+            final_text("Nothing to do."),
+        ]
+    )
+
+    result = run_scan(client, publisher, feed)
+
+    escalated = {(d["room"], d["med"]) for d in result["coverage"]["escalated"]}
+    assert escalated == {("304", "Insulin"), ("602", "Heparin")}
+    assert "Safety check escalated" in result["reply"]
+    assert {e["room"] for e in escalation.list_escalations()} == {"304", "602"}
+    assert [call[0] for call in publisher.calls] == ["EscalationNeeded"] * 2
+    assert "scan_dose_unhandled" in feed.actions()
+    assert not _pending_doses_left()
+
+
+def test_scan_safety_check_retry_lets_the_agent_finish_the_dose() -> None:
+    publisher, feed = RecordingPublisher(), RecordingFeed()
+    client = CannedBedrockClient(
+        [
+            tool_use("tool-1", "get_doses_due", {}),
+            final_text("Scan complete."),
+            # Retry for insulin (sorted by due time) succeeds end to end.
+            *insulin_demo_responses(INSULIN_DUE_AT),
+            # Retry for heparin finds no stock and escalates properly.
+            tool_use("h-1", "find_stock", {"med": "Heparin"}),
+            tool_use(
+                "h-2",
+                "escalate",
+                {
+                    "reason": "No positive Heparin stock is available.",
+                    "room": "602",
+                    "to_role": "charge",
+                    "med": "Heparin",
+                },
+            ),
+            final_text("Heparin escalated."),
+        ]
+    )
+
+    result = run_scan(client, publisher, feed)
+
+    assert [d["to_room"] for d in deliveries.list_deliveries()] == ["304"]
+    assert [e["room"] for e in escalation.list_escalations()] == ["602"]
+    assert result["coverage"]["escalated"] == []
+    assert len(result["coverage"]["retried"]) == 2
+    assert [call[0] for call in publisher.calls] == ["EscalationNeeded"]
+
+
+def test_scan_safety_check_escalates_everything_when_bedrock_is_down() -> None:
+    publisher, feed = RecordingPublisher(), RecordingFeed()
+
+    result = run_scan(FailingBedrockClient(), publisher, feed)
+
+    assert "agent_failed" in feed.actions()
+    assert {(d["room"], d["med"]) for d in result["coverage"]["escalated"]} == {
+        ("304", "Insulin"),
+        ("602", "Heparin"),
+    }
+    assert len(escalation.list_escalations()) == 2
+    assert not deliveries.list_deliveries()
+
+
+def test_scan_safety_check_is_quiet_when_everything_is_handled() -> None:
+    publisher = RecordingPublisher()
+    routing_escalate = build_tool_impls(RecordingFeed(), publisher)["escalate"]
+    routing_escalate(reason="No stock.", room="602", med="Heparin")
+    create_routing_delivery(
+        room="304",
+        med="Insulin",
+        due_at=INSULIN_DUE_AT,
+        from_location="Unit 6 cabinet",
+        priority="critical",
+        runner_id="N005",
+    )
+    client = CannedBedrockClient([final_text("Records as of 02:05. Nothing pending.")])
+
+    result = run_scan(client, publisher, RecordingFeed())
+
+    assert result["coverage"] == {"retried": [], "escalated": []}
+    assert len(publisher.calls) == 1  # only the pre-existing heparin escalation
+
+
+def _pending_doses_left() -> list[dict[str, Any]]:
+    return routing_app._pending_doses()
+
+
 def test_scan_window_flags_only_insulin_and_heparin_for_routing() -> None:
     result = get_doses_due()
 

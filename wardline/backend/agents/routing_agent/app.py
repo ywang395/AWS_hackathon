@@ -21,6 +21,7 @@ from backend.shared.agent_loop import (
     AgentFeedEvent,
     AgentFeedLogger,
     AgentLoop,
+    AgentLoopError,
     default_feed_logger,
     next_feed_timestamp,
 )
@@ -505,6 +506,63 @@ def _build_user_input(event_type: str, detail: Mapping[str, Any]) -> str:
     return f"Run a routing scan now. {_SCAN_INSTRUCTIONS}"
 
 
+def _pending_doses() -> list[dict[str, Any]]:
+    """Doses in the 60-minute window that need routing but have no outcome yet."""
+
+    return [
+        dose
+        for dose in get_doses_due()["doses"]
+        if dose["needs_routing"]
+        and dose["existing_delivery"] is None
+        and dose["open_escalation_id"] is None
+    ]
+
+
+def _dose_label(dose: Mapping[str, Any]) -> dict[str, Any]:
+    return {"room": dose["room"], "med": dose["med"], "due_at": dose["due_at"]}
+
+
+def _ensure_scan_coverage(
+    run_single_dose: Callable[[dict[str, Any]], str],
+    routing_escalate: Callable[..., dict[str, Any]],
+    feed_logger: AgentFeedLogger,
+) -> dict[str, list[dict[str, Any]]]:
+    """Guarantee every pending dose ends with a delivery or an escalation.
+
+    The model is not trusted to cover every dose in a scan. Anything it left
+    unhandled is retried once as a targeted single-dose request; anything still
+    unhandled (including when Bedrock is unavailable) is escalated by code.
+    """
+
+    retried: list[dict[str, Any]] = []
+    for dose in _pending_doses():
+        label = _dose_label(dose)
+        _log_feed(feed_logger, "scan_dose_unhandled", label)
+        retried.append(label)
+        try:
+            run_single_dose(dose)
+        except Exception as exc:
+            _log_feed(
+                feed_logger,
+                "scan_retry_failed",
+                {**label, "error_type": type(exc).__name__},
+            )
+
+    escalated: list[dict[str, Any]] = []
+    for dose in _pending_doses():
+        label = _dose_label(dose)
+        routing_escalate(
+            reason=(
+                f"Automated routing did not complete for {dose['med']} in room "
+                f"{dose['room']} (due {dose['due_at']}); manual review required."
+            ),
+            room=dose["room"],
+            med=dose["med"],
+        )
+        escalated.append(label)
+    return {"retried": retried, "escalated": escalated}
+
+
 def handle_routing_event(
     event: Mapping[str, Any],
     *,
@@ -519,35 +577,70 @@ def handle_routing_event(
     Leave ``bedrock_client`` as None to call real Bedrock using ``MODEL_ID``
     and the standard AWS credential chain (including AWS_BEARER_TOKEN_BEDROCK).
     ``event_publisher`` defaults to ``put_event`` (honors ``DRY_RUN``).
+
+    Scan and outage runs finish with a code-enforced coverage check, reported
+    under ``coverage`` in the result.
     """
 
     event_type, detail = _parse_event(event)
     active_feed = feed_logger if feed_logger is not None else default_feed_logger()
-    # Dependency injection keeps the full workflow runnable with a fake client.
-    agent = AgentLoop(
-        model_id=model_id,
-        bedrock_client=bedrock_client,
-        feed_logger=active_feed,
-        agent_name=AGENT_NAME,
+    tool_impls = build_tool_impls(active_feed, event_publisher)
+
+    def run(run_type: str, run_detail: Mapping[str, Any], steps: int) -> str:
+        # A fresh loop per run; dependency injection keeps tests off live AWS.
+        agent = AgentLoop(
+            model_id=model_id,
+            bedrock_client=bedrock_client,
+            feed_logger=active_feed,
+            agent_name=AGENT_NAME,
+        )
+        return agent.run(
+            load_system_prompt(),
+            ROUTING_TOOL_SPECS,
+            _build_user_input(run_type, run_detail),
+            tool_impls,
+            max_steps=steps,
+        )
+
+    if event_type == MED_REQUESTED:
+        return {
+            "agent": AGENT_NAME,
+            "event_type": event_type,
+            "reply": run(event_type, detail, max_steps or MED_REQUEST_MAX_STEPS),
+        }
+
+    reply = ""
+    try:
+        reply = run(event_type, detail, max_steps or SCAN_MAX_STEPS)
+    except AgentLoopError as exc:
+        _log_feed(active_feed, "agent_failed", {"error_type": type(exc).__name__})
+        reply = f"Routing agent failed ({type(exc).__name__}); safety check applied."
+
+    def run_single_dose(dose: dict[str, Any]) -> str:
+        return run(
+            MED_REQUESTED,
+            {
+                "request_id": build_request_id(
+                    dose["room"], dose["med"], dose["due_at"]
+                ),
+                "room": dose["room"],
+                "med": dose["med"],
+                "requested_by": AGENT_NAME,
+            },
+            MED_REQUEST_MAX_STEPS,
+        )
+
+    coverage = _ensure_scan_coverage(
+        run_single_dose, tool_impls["escalate"], active_feed
     )
-    resolved_max_steps = (
-        max_steps
-        if max_steps is not None
-        else MED_REQUEST_MAX_STEPS
-        if event_type == MED_REQUESTED
-        else SCAN_MAX_STEPS
-    )
-    reply = agent.run(
-        load_system_prompt(),
-        ROUTING_TOOL_SPECS,
-        _build_user_input(event_type, detail),
-        build_tool_impls(active_feed, event_publisher),
-        max_steps=resolved_max_steps,
-    )
+    if coverage["escalated"]:
+        rooms = ", ".join(f"{d['med']} room {d['room']}" for d in coverage["escalated"])
+        reply = f"{reply} Safety check escalated to the charge nurse: {rooms}."
     return {
         "agent": AGENT_NAME,
         "event_type": event_type,
         "reply": reply,
+        "coverage": coverage,
     }
 
 

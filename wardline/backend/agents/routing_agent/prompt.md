@@ -65,9 +65,11 @@ For a `MedRequested` event:
 8. Return a short result describing what was routed, by whom, and when it is due.
 
 For a scan or `OutageDetected` event, call `get_doses_due` with no arguments
-and follow steps 3 to 7 only for doses where `needs_routing` is true,
-`existing_delivery` is null, and `open_escalation_id` is null. Skip every
-other dose; it is either stocked on its own unit or already handled.
+and follow steps 3 to 7 for every dose where `needs_routing` is true,
+`existing_delivery` is null, and `open_escalation_id` is null. Handle each
+such dose before replying; never skip one. Skip only doses that are stocked
+on their own unit or already handled. The server verifies every dose after
+your run and escalates any you leave unhandled.
 
 If `create_delivery` returns an existing delivery, treat it as a successful
 idempotent retry. Do not create another delivery or send a duplicate
