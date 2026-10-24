@@ -40,6 +40,12 @@ def _reject_floats(value: Any) -> None:
             _reject_floats(item)
 
 
+class ConditionalCheckFailed(Exception):
+    """Mimics botocore's ClientError for a failed ConditionExpression."""
+
+    response = {"Error": {"Code": "ConditionalCheckFailedException"}}
+
+
 class FakeTable:
     def __init__(self, name: str, pk: str, sk: str | None, indexes: dict[str, str], page_size: int | None) -> None:
         self.name, self.pk, self.sk, self.indexes, self.page_size = name, pk, sk, indexes, page_size
@@ -48,9 +54,14 @@ class FakeTable:
     def _key(self, item: dict) -> tuple:
         return (item[self.pk], item.get(self.sk) if self.sk else None)
 
-    def put_item(self, Item: dict) -> dict:
+    def put_item(self, Item: dict, ConditionExpression: str | None = None,
+                 ExpressionAttributeNames: dict | None = None) -> dict:
         _reject_floats(Item)
-        self.items[self._key(Item)] = copy.deepcopy(Item)
+        key = self._key(Item)
+        # Only attribute_not_exists(...) is used (shared/db.DynamoAgentFeed).
+        if ConditionExpression and ConditionExpression.startswith("attribute_not_exists") and key in self.items:
+            raise ConditionalCheckFailed()
+        self.items[key] = copy.deepcopy(Item)
         return {}
 
     def get_item(self, Key: dict) -> dict:

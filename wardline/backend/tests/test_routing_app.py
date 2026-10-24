@@ -7,6 +7,8 @@ from typing import Any
 
 import pytest
 
+from backend.shared.notify import NotifyResult
+
 from backend.agents.routing_agent import app as routing_app
 from backend.agents.routing_agent.app import (
     RoutingEventError,
@@ -95,7 +97,7 @@ def test_med_requested_runs_full_fake_bedrock_workflow(
     ]
     printed = json.loads(capsys.readouterr().out)
     assert printed["event"] == "email"
-    assert printed["to"] == "n005@wardline.example"
+    assert printed["to"] == "marcus.webb@example.com"  # N005 in data/nurses.json
     assert "Unit 6 cabinet" in printed["body"]
     email_result = next(
         event.detail["result"]
@@ -460,9 +462,10 @@ def test_send_email_live_path_uses_ses_with_resolved_address(
 ) -> None:
     sent: list[dict[str, Any]] = []
 
-    def fake_notify(to: str, subject: str, body: str) -> dict[str, Any]:
+    def fake_notify(to: str, subject: str, body: str) -> NotifyResult:
         sent.append({"to": to, "subject": subject, "body": body})
-        return {"status": "sent", "to": to, "subject": subject, "message_id": "m-1"}
+        # shared/notify.send_email returns a NotifyResult (the alert agent's contract).
+        return NotifyResult(to=to, subject=subject, status="sent", delivered_to=to, message_id="m-1")
 
     monkeypatch.setattr(routing_app, "notify_send_email", fake_notify)
     monkeypatch.setattr(
@@ -487,7 +490,15 @@ def test_send_email_live_path_uses_ses_with_resolved_address(
 def test_live_email_without_address_on_file_fails_loudly(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    import backend.agents.routing_agent.app as routing_app
+
     monkeypatch.setenv("NOTIFY_DRY_RUN", "0")
+    # data/nurses.json now gives every runner an email, so drop it to test the guard.
+    runners = {
+        runner_id: {k: v for k, v in record.items() if k != "email"}
+        for runner_id, record in routing_app._on_shift_runners().items()
+    }
+    monkeypatch.setattr(routing_app, "_on_shift_runners", lambda: runners)
 
     with pytest.raises(RoutingToolError, match="No email address on file"):
         send_email(runner_id="N005", subject="Urgent", body="Room 304 insulin.")

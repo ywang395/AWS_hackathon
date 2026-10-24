@@ -136,21 +136,20 @@ class ChatDeps:
     # single-process server can wrap it to also run the routing agent in-process.
     publish_event: Callable[[str, str, Mapping[str, Any]], Any] = put_event
     record_ack: Optional[Callable[[str], None]] = _record_ack_default  # None disables acking
-    load_deliveries: Optional[Callable[[], list[dict]]] = None  # -> Deliveries table or tools.deliveries
+    load_deliveries: Optional[Callable[[], list[dict]]] = None  # -> tools.deliveries.list_deliveries()
     patients: Optional[list[dict]] = None  # roster override (tests); None -> tools.patients loaders
     nurses: Optional[list[dict]] = None    # staff override for name lookups (tests)
     bedrock_client: Any = None             # None -> real bedrock-runtime client (agent_loop)
     model_id: Optional[str] = None         # None -> MODEL_ID env var
-    feed_logger: Optional[AgentFeedLogger] = None  # None -> JSON log lines
+    feed_logger: Optional[AgentFeedLogger] = None  # None -> default_feed_logger(): AgentFeed table if AGENT_FEED_TABLE is set
 
 
 def _all_deliveries(deps: ChatDeps) -> list[dict]:
     if deps.load_deliveries is not None:
         return deps.load_deliveries()
-    if db.use_dynamodb():
-        # Populated once the routing agent's create_delivery writes to this
-        # table (its Phase 2 swap). Until then deliveries live in its memory.
-        return db.scan("deliveries")
+    # Read through tools/deliveries, the store create_delivery writes to, so /chat
+    # shows exactly what the routing agent created. Scanning the Deliveries table
+    # directly showed nothing while that store is still in memory.
     return delivery_tools.list_deliveries()
 
 

@@ -17,20 +17,31 @@ Table names come from the env vars template.yaml exports (NURSES_TABLE,
 PATIENTS_TABLE, ...) and fall back to the section 5 names, so a renamed or
 stage-suffixed table only needs an env var change.
 
+Region: DYNAMODB_REGION, then AWS_REGION, then us-east-1
+(shared/config.resolve_region), the same rule as Bedrock, SES and EventBridge.
+
+Also home of DynamoAgentFeed, the AgentFeed writer that
+shared/agent_loop.default_feed_logger() returns when AGENT_FEED_TABLE is set.
+
 boto3 is imported lazily: DATA_BACKEND=json and the unit tests run without
 boto3 installed. Tests inject a fake resource with set_resource().
 """
 
 from __future__ import annotations
 
+import json
 import os
 import threading
 from collections.abc import Callable, Mapping
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-DEFAULT_REGION = "us-east-1"  # CLAUDE.md section 3: one region for everything
+from backend.shared.config import resolve_region
+
+if TYPE_CHECKING:  # type hint only: agent_loop imports this module lazily, keep it one-way
+    from backend.shared.agent_loop import AgentFeedEvent
 
 # Logical key -> (env var, default table name). Mirrors CLAUDE.md section 5
 # and the Globals.Function.Environment block in template.yaml.
@@ -90,19 +101,19 @@ def set_resource(resource: Any | None) -> None:
     _resource_override = resource
 
 
-def _resource() -> Any:
+def _resource(region_name: str | None = None) -> Any:
+    """The injected test resource, else a boto3 resource. The default region's resource is cached."""
     global _resource_cache
     if _resource_override is not None:
         return _resource_override
-    if _resource_cache is None:
-        import boto3  # lazy: only needed when DATA_BACKEND=dynamodb
+    if region_name:
+        import boto3  # lazy: only needed when DynamoDB is actually used
 
-        region = (
-            os.environ.get("AWS_REGION")
-            or os.environ.get("AWS_DEFAULT_REGION")
-            or DEFAULT_REGION
-        )
-        _resource_cache = boto3.resource("dynamodb", region_name=region)
+        return boto3.resource("dynamodb", region_name=region_name)
+    if _resource_cache is None:
+        import boto3
+
+        _resource_cache = boto3.resource("dynamodb", region_name=resolve_region(None, "DYNAMODB_REGION"))
     return _resource_cache
 
 
@@ -202,3 +213,97 @@ def _paginate(call: Callable[..., Any], kwargs: dict[str, Any], limit: int | Non
             break
         kwargs = {**kwargs, "ExclusiveStartKey": last_key}
     return items[:limit] if limit else items
+
+
+# ---------------------------------------------------------------------------
+# AgentFeed writer (CLAUDE.md section 5: PK day, SK ts). Chosen by
+# shared/agent_loop.default_feed_logger() whenever AGENT_FEED_TABLE is set,
+# independent of DATA_BACKEND, so every agent's decisions reach the dashboard.
+# ---------------------------------------------------------------------------
+
+# DynamoDB items max out at 400 KB; keep the detail well under that.
+MAX_DETAIL_BYTES = 300_000
+_MAX_KEY_ATTEMPTS = 5
+
+
+class DynamoError(RuntimeError):
+    """Raised when a DynamoDB helper cannot complete its write."""
+
+
+def to_dynamo_value(value: Any) -> Any:
+    """JSON round-trip for arbitrary feed detail: floats become Decimal, other types become str.
+
+    Unlike to_dynamo(), this also copes with values that are not plain JSON
+    (datetimes, tuples), which tool results passed into AgentFeed can hold.
+    """
+    return json.loads(json.dumps(value, default=str), parse_float=Decimal)
+
+
+def _is_conditional_failure(exc: Exception) -> bool:
+    response = getattr(exc, "response", None)
+    if not isinstance(response, dict):
+        return False
+    return response.get("Error", {}).get("Code") == "ConditionalCheckFailedException"
+
+
+def _bump_ts(ts: str) -> str:
+    parsed = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    bumped = parsed + timedelta(microseconds=1)
+    return bumped.isoformat(timespec="microseconds").replace("+00:00", "Z")
+
+
+def _agent_feed_table_name() -> str:
+    return table_name("agent_feed")  # AGENT_FEED_TABLE, default "AgentFeed"
+
+
+class DynamoAgentFeed:
+    """AgentFeed logger writing ``{day, ts, agent, action, detail}`` items.
+
+    Writes are conditional on the key being new, so two processes logging in
+    the same microsecond never overwrite each other; the loser retries with
+    ``ts`` bumped by 1us.
+    """
+
+    def __init__(
+        self,
+        table_name: str | None = None,
+        *,
+        table: Any | None = None,
+        region_name: str | None = None,
+    ) -> None:
+        self._table = table
+        self._table_name = table_name or _agent_feed_table_name()
+        self._region_name = region_name
+
+    def _active_table(self) -> Any:
+        if self._table is None:
+            self._table = _resource(self._region_name).Table(self._table_name)
+        return self._table
+
+    def log(self, event: AgentFeedEvent) -> None:
+        detail = to_dynamo_value(dict(event.detail))
+        encoded = json.dumps(detail, default=str)
+        if len(encoded.encode("utf-8")) > MAX_DETAIL_BYTES:
+            detail = {"truncated": True, "preview": encoded[:2000]}
+
+        current = event
+        for _ in range(_MAX_KEY_ATTEMPTS):
+            item = {
+                "day": current.day,
+                "ts": current.ts,
+                "agent": current.agent,
+                "action": current.action,
+                "detail": detail,
+            }
+            try:
+                self._active_table().put_item(
+                    Item=item,
+                    ConditionExpression="attribute_not_exists(#ts)",
+                    ExpressionAttributeNames={"#ts": "ts"},
+                )
+                return
+            except Exception as exc:
+                if not _is_conditional_failure(exc):
+                    raise DynamoError("AgentFeed put_item failed.") from exc
+                current = replace(current, ts=_bump_ts(current.ts))
+        raise DynamoError("AgentFeed key stayed in use after retries.")

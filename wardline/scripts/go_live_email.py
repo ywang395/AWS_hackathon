@@ -25,6 +25,7 @@ Uses an in-memory ack store so the real Alerts table is untouched.
 from __future__ import annotations
 
 import argparse
+import importlib
 import os
 import sys
 from pathlib import Path
@@ -32,6 +33,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from backend.shared.config import load_default_env  # noqa: E402
 from scripts import live_config  # noqa: E402
 
 
@@ -95,4 +97,8 @@ def main(argv: list[str]) -> int:
 
 
 if __name__ == "__main__":
+    # Load wardline/.env first (the routing_agent/cli.py convention), then re-read
+    # live_config, which reads os.environ when it is imported.
+    load_default_env()
+    importlib.reload(live_config)
     sys.exit(1 if main(sys.argv[1:]) else 0)

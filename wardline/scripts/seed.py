@@ -36,6 +36,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))  # run as a plain script: make `backend` importable
 
 from backend.shared import db  # noqa: E402
+from backend.shared.config import load_default_env  # noqa: E402
 
 DATA_DIR = ROOT / "data"
 
@@ -66,13 +67,7 @@ def seed_table(fixture_file: str, *, dry_run: bool = False) -> int:
         print(f"[dry-run] would write {len(items)} items to table '{name}'")
         return len(items)
 
-    if dynamodb is None:
-        import boto3  # local import: only needed when actually talking to AWS
-
-        region = os.environ.get("AWS_REGION", "us-east-1")
-        dynamodb = boto3.resource("dynamodb", region_name=region)
-
-    table = dynamodb.Table(table_name)
+    table = db.get_table(FIXTURES[fixture_file])  # region rule lives in shared/db.py (us-east-1 default)
     with table.batch_writer() as batch:
         for item in items:
             batch.put_item(Item=db.to_dynamo(item))
@@ -103,5 +98,6 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
 
 
 if __name__ == "__main__":
+    load_default_env()  # wardline/.env, the same convention as routing_agent/cli.py
     args = _parse_args(sys.argv[1:])
     sys.exit(1 if seed_all(only=args.only, dry_run=args.dry_run) else 0)

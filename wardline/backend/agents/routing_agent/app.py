@@ -25,6 +25,7 @@ from backend.shared.agent_loop import (
     default_feed_logger,
     next_feed_timestamp,
 )
+from backend.shared import db
 from backend.shared.events import put_event
 from backend.shared.notify import dry_run_enabled as notify_dry_run_enabled
 from backend.shared.notify import send_email as notify_send_email
@@ -41,7 +42,7 @@ from backend.tools.stock import find_stock
 EventPublisher = Callable[..., Any]
 
 PROMPT_PATH = Path(__file__).with_name("prompt.md")
-# Phase 1 reads Alisher's seed files; the DynamoDB swap replaces these loaders.
+# data/*.json for DATA_BACKEND=json; _load_records() reads DynamoDB otherwise.
 DATA_DIR = Path(__file__).resolve().parents[3] / "data"
 PATIENTS_PATH = DATA_DIR / "patients.json"
 NURSES_PATH = DATA_DIR / "nurses.json"
@@ -119,10 +120,22 @@ def _load_json_list(path: Path) -> list[dict[str, Any]]:
     return data
 
 
+def _load_records(table_key: str, path: Path) -> list[dict[str, Any]]:
+    """Patient or staff records from DynamoDB when DATA_BACKEND=dynamodb, else data/*.json.
+
+    Same switch the nurse and alert agents use (shared/db.py). Reading JSON
+    while they read DynamoDB would let a nurse's request_med carry a due_at
+    the routing agent never sees, so the dose would never be routed.
+    """
+    if db.use_dynamodb():
+        return db.scan(table_key)
+    return _load_json_list(path)
+
+
 def _load_staff() -> dict[str, dict[str, Any]]:
     return {
         str(record["nurse_id"]): record
-        for record in _load_json_list(NURSES_PATH)
+        for record in _load_records("nurses", NURSES_PATH)
         if record.get("nurse_id")
     }
 
@@ -131,7 +144,7 @@ def all_doses() -> tuple[str, list[dict[str, Any]]]:
     """Return ``(snapshot_ts, doses)`` for every scheduled med in the records."""
 
     staff = _load_staff()
-    patients = _load_json_list(PATIENTS_PATH)
+    patients = _load_records("patients", PATIENTS_PATH)
     snapshots = [p["snapshot_ts"] for p in patients if p.get("snapshot_ts")]
     if not snapshots:
         raise RoutingDataError("Patient records have no snapshot_ts.")
@@ -319,7 +332,7 @@ def _runner_email(runner_id: str) -> str:
     if isinstance(email, str) and email.strip():
         return email.strip()
     if notify_dry_run_enabled():
-        # Seed data has no email yet; a synthetic address keeps dry runs flowing.
+        # A record without an email still works in a dry run via a synthetic address.
         return f"{runner_id.lower()}@{PLACEHOLDER_EMAIL_DOMAIN}"
     raise RoutingToolError(
         f"No email address on file for '{runner_id}'; add an SES-verified "
@@ -338,12 +351,17 @@ def send_email(runner_id: str, subject: str, body: str) -> dict[str, Any]:
         normalized_subject,
         normalized_body,
     )
+    if result.status == "error":
+        # shared/notify never raises (the alert sweep relies on that). A routing
+        # tool must fail loudly so the model escalates instead of assuming the
+        # runner knows about the delivery.
+        raise RoutingToolError(f"Email to runner '{normalized_runner}' failed: {result.error}")
     # Report delivery status to the model without echoing the address.
     return {
-        "status": result["status"],
+        "status": result.status,
         "runner_id": normalized_runner,
-        "subject": result["subject"],
-        "message_id": result["message_id"],
+        "subject": result.subject,
+        "message_id": result.message_id,
     }
 
 
