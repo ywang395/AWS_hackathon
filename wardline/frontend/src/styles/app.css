@@ -208,14 +208,25 @@ p, .esc-reason, .step-result { text-wrap: pretty; }
 .delivery-title { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 0 12px; }
 .delivery-due { color: var(--muted); white-space: nowrap; }
 
-/* the feed: newest run first, each a timestamped chain of steps. Its list scrolls inside the
-   panel, so the panel takes the right column's height and new rows never move the page */
+/* the feed: newest run first, limited to four complete runs. Log view is a compact audit trail;
+   Cards view uses the same Run/checklist component in a scannable grid. */
 .feed { display: flex; flex-direction: column; min-height: 360px; }
+.feed-header { align-items: flex-start !important; }
+.feed-header > div:first-child { display: grid; gap: 4px; }
+.view-switch { display: inline-flex; padding: 3px; border: 1px solid var(--control); border-radius: var(--radius-control); background: var(--raised); }
+.view-option { min-width: 64px; min-height: 36px; padding: 0 12px; border: 0; border-radius: calc(var(--radius-control) - 3px); background: transparent; color: var(--muted); font-size: var(--fs-small); font-weight: 600; cursor: pointer; }
+.view-option:hover { color: var(--text); }
+.view-option[aria-pressed="true"] { background: var(--surface); color: var(--text); }
 .feed-scroll { position: relative; flex: 1; min-height: 0; overflow: auto; margin-right: -12px; padding-right: 12px; }
 .feed-scroll > * { width: 100%; }
 @media (min-width: 1101px) { .feed-scroll > .runs { position: absolute; inset: 0 12px auto 0; width: auto; } }
+.runs-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 12px 0; }
 .run { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 16px; padding: 16px 0; }
 .run + .run { border-top: 1px solid var(--rule); }
+.runs-cards .run { display: block; min-width: 0; padding: 16px; border: 1px solid var(--card-border); border-radius: var(--radius-card); background: var(--raised); }
+.runs-cards .run + .run { border-top: 1px solid var(--card-border); }
+.runs-cards .run-time { display: block; margin-bottom: 6px; }
+.runs-cards .run-reply { background: var(--surface); }
 .run-time { padding-top: 1px; color: var(--muted); font-size: var(--fs-small); }
 .run-head { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 4px 16px; }
 .run-head strong { font-weight: 600; }
@@ -265,6 +276,8 @@ p, .esc-reason, .step-result { text-wrap: pretty; }
   .board > .side { grid-template-columns: minmax(0, 1fr); }
   .controls { grid-template-columns: minmax(0, 1fr); }
   .control-card .btn { justify-self: stretch; }
+  .runs-cards { grid-template-columns: minmax(0, 1fr); }
+  .feed-header { align-items: flex-start; }
   .run { grid-template-columns: minmax(0, 1fr); gap: 4px; }
   .panel { padding: 16px; }
 }

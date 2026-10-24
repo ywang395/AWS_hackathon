@@ -132,28 +132,47 @@ function useArrivals(ids, ready) {
   return new Set(ids.filter((id) => now - (arrivedAt.current.get(id) ?? -Infinity) < ARRIVAL_MS))
 }
 
+const RECENT_RUN_LIMIT = 4
+
 function FeedPanel({ runs, names, loading, failed, working, offline }) {
   const [opened, setOpened] = useState(() => new Set())
+  const [view, setView] = useState('log')
+  const shownRuns = runs.slice(0, RECENT_RUN_LIMIT)
   const toggle = (id) => setOpened((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n })
-  const arrived = useArrivals(runs.map((r) => r.id), !loading && !failed)
+  const arrived = useArrivals(shownRuns.map((r) => r.id), !loading && !failed)
   return (
     <section className="panel feed" aria-labelledby="feed-title">
-      <header>
-        <h2 id="feed-title">Agent activity</h2>
-        <span className="meta">
-          {offline
-            ? <><Dot tone="neg" /> Not updating</>
-            : <><Dot tone="pos" pulse={working} /> {working ? 'Agents working' : 'Live'}{runs.length ? ` · ${plural(runs.length, 'run')}` : ''}</>}
-        </span>
+      <header className="feed-header">
+        <div>
+          <h2 id="feed-title">Agent activity</h2>
+          <span className="meta">
+            {offline
+              ? <><Dot tone="neg" /> Not updating</>
+              : <><Dot tone="pos" pulse={working} /> {working ? 'Agents working' : 'Live'}{shownRuns.length ? ` · ${shownRuns.length} recent` : ''}</>}
+          </span>
+        </div>
+        <div className="view-switch" role="group" aria-label="Agent activity view">
+          {['log', 'cards'].map((option) => (
+            <button
+              key={option}
+              type="button"
+              className="view-option"
+              aria-pressed={view === option}
+              onClick={() => setView(option)}
+            >
+              {option === 'log' ? 'Log' : 'Cards'}
+            </button>
+          ))}
+        </div>
       </header>
       <div className="feed-scroll">
-        {loading && <SkeletonRows count={5} tall />}
+        {loading && <SkeletonRows count={4} tall />}
         {failed && <p className="empty">Couldn’t load the agent feed. It will retry every 3 seconds.</p>}
         {!loading && !failed && !runs.length && (
           <p className="empty">No agent activity yet. When systems go down, every agent decision appears here as it happens.</p>
         )}
-        <ol className="runs">
-          {runs.map((run) => <Run key={run.id} run={run} names={names} isNew={arrived.has(run.id)} opened={opened.has(run.id)} onToggle={() => toggle(run.id)} />)}
+        <ol className={`runs runs-${view}`} aria-label={`${shownRuns.length} most recent agent activities`}>
+          {shownRuns.map((run) => <Run key={run.id} run={run} names={names} isNew={arrived.has(run.id)} opened={opened.has(run.id)} onToggle={() => toggle(run.id)} />)}
         </ol>
       </div>
     </section>
@@ -202,7 +221,7 @@ function Run({ run, names, isNew, opened, onToggle }) {
         ))}
         {!notable && run.steps.length > 0 && (
           <button type="button" className="text-btn run-toggle" aria-expanded={open} aria-controls={`steps-${run.id}`} onClick={onToggle}>
-            {open ? 'Hide steps' : `Show ${plural(run.steps.length, 'step')}`}
+            {open ? 'Hide checklist' : `Show checklist (${run.steps.length})`}
           </button>
         )}
       </div>
