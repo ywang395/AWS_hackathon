@@ -487,6 +487,26 @@ def test_send_email_live_path_uses_ses_with_resolved_address(
     }
 
 
+def test_runner_notify_dry_run_keeps_runner_email_off_ses(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Nurse alerts send for real, but runner dispatch emails are only logged.
+    monkeypatch.setenv("NOTIFY_DRY_RUN", "0")
+    monkeypatch.setenv("RUNNER_NOTIFY_DRY_RUN", "1")
+    calls: list[dict[str, Any]] = []
+
+    def fake_notify(to: str, subject: str, body: str, *, dry_run: bool | None = None) -> NotifyResult:
+        calls.append({"to": to, "dry_run": dry_run})
+        return NotifyResult(to=to, subject=subject, status="dry_run", delivered_to=to)
+
+    monkeypatch.setattr(routing_app, "notify_send_email", fake_notify)
+
+    result = send_email(runner_id="N005", subject="Urgent", body="Room 304 insulin.")
+
+    assert calls == [{"to": "marcus.webb@example.com", "dry_run": True}]
+    assert result["status"] == "dry_run"
+
+
 def test_live_email_without_address_on_file_fails_loudly(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

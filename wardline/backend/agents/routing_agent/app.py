@@ -340,17 +340,24 @@ def _runner_email(runner_id: str) -> str:
     )
 
 
+def runner_notify_dry_run() -> bool:
+    """RUNNER_NOTIFY_DRY_RUN=1 logs runner dispatch emails instead of sending them.
+
+    Lets nurse alerts go out for real while runner emails stay quiet, e.g. when
+    NOTIFY_TO_OVERRIDE would otherwise land every runner dispatch in the demo inbox.
+    Unset or "0" follows NOTIFY_DRY_RUN as before.
+    """
+    return os.environ.get("RUNNER_NOTIFY_DRY_RUN", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def send_email(runner_id: str, subject: str, body: str) -> dict[str, Any]:
     """Email a selected runner via SES; the address is resolved in code."""
 
     normalized_runner = _require_text(runner_id, field="runner_id")
     normalized_subject = _require_text(subject, field="subject")
     normalized_body = _require_text(body, field="body")
-    result = notify_send_email(
-        _runner_email(normalized_runner),
-        normalized_subject,
-        normalized_body,
-    )
+    args = (_runner_email(normalized_runner), normalized_subject, normalized_body)
+    result = notify_send_email(*args, dry_run=True) if runner_notify_dry_run() else notify_send_email(*args)
     if result.status == "error":
         # shared/notify never raises (the alert sweep relies on that). A routing
         # tool must fail loudly so the model escalates instead of assuming the
