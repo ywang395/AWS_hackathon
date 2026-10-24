@@ -21,7 +21,7 @@ def test_prompt_defines_required_tools_and_safety_rules() -> None:
         "find_stock",
         "get_runners",
         "create_delivery",
-        "send_email",
+        "send_sms",
         "escalate",
     ]:
         assert tool_name in prompt
@@ -39,4 +39,4 @@ def test_prompt_covers_insulin_and_heparin_demo_cases() -> None:
     assert "Unit 4 has no insulin but Unit 6 has positive stock" in prompt
     assert "heparin has no positive stock anywhere" in prompt
     assert "escalate to the charge nurse" in prompt
-    assert "send_sms" not in prompt
+    assert "send_email" not in prompt

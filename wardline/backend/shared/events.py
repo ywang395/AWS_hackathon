@@ -8,9 +8,6 @@ from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any
 
-import boto3
-from botocore.config import Config
-from botocore.exceptions import BotoCoreError, ClientError
 
 DEFAULT_EVENT_BUS_NAME = "wardline"
 DEFAULT_REGION = "us-west-2"
@@ -86,6 +83,9 @@ def _create_eventbridge_client(region_name: str | None) -> Any:
         or os.getenv("AWS_DEFAULT_REGION")
         or DEFAULT_REGION
     )
+    import boto3
+    from botocore.config import Config
+
     return boto3.client(
         "events",
         region_name=resolved_region,
@@ -190,8 +190,6 @@ def put_event(
     )
     try:
         response = active_client.put_events(Entries=[entry])
-    except (BotoCoreError, ClientError) as exc:
-        raise EventPublishError("EventBridge PutEvents request failed.") from exc
     except Exception as exc:
         raise EventPublishError("EventBridge client failed.") from exc
 

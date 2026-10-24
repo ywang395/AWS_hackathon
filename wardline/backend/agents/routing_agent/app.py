@@ -203,7 +203,7 @@ def create_routing_delivery(
     )
 
 
-def send_email(runner_id: str, subject: str, body: str) -> dict[str, Any]:
+def send_sms(runner_id: str, subject: str, body: str) -> dict[str, Any]:
     """Provide a safe local notification stub until shared/notify.py is wired."""
 
     normalized_runner = _require_tool_text(runner_id, field="runner_id")
@@ -221,7 +221,7 @@ def send_email(runner_id: str, subject: str, body: str) -> dict[str, Any]:
     print(
         json.dumps(
             {
-                "tool": "send_email",
+                "tool": "send_sms",
                 "mode": "dry_run",
                 "runner_id": normalized_runner,
                 "subject": normalized_subject,
@@ -250,7 +250,7 @@ def build_tool_impls(feed_logger: AgentFeedLogger) -> dict[str, Any]:
         "find_stock": find_stock,
         "get_runners": get_runners,
         "create_delivery": create_routing_delivery,
-        "send_email": send_email,
+        "send_sms": send_sms,
         "escalate": routing_escalate,
     }
 

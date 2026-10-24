@@ -55,9 +55,10 @@ def reset_escalations() -> None:
 def escalate(
     source_agent: str,
     reason: str,
-    room: str,
-    to_role: str,
+    room: str = "",
+    to_role: str = "charge",
     *,
+    nurse_id: str | None = None,
     feed_logger: AgentFeedLogger | None = None,
 ) -> dict[str, Any]:
     """
@@ -70,7 +71,7 @@ def escalate(
         field="source_agent",
     )
     normalized_reason = _require_non_empty_string(reason, field="reason")
-    normalized_room = _require_non_empty_string(room, field="room")
+    normalized_room = room.strip() if isinstance(room, str) else ""
     normalized_role = _require_non_empty_string(to_role, field="to_role")
     active_feed = (
         feed_logger if feed_logger is not None else JsonLoggingAgentFeed()
@@ -81,6 +82,7 @@ def escalate(
         "source_agent": normalized_source,  # Agent requesting human review.
         "reason": normalized_reason,  # Why human intervention is required.
         "room": normalized_room,  # Patient room affected by the issue.
+        "nurse_id": nurse_id,  # Nurse involved, when the escalation is nurse-scoped.
         "to_role": normalized_role,  # Staff role receiving the escalation.
         "created_at": _utc_timestamp(),  # UTC time the escalation was created.
         "resolved": False,  # New escalations always start unresolved.

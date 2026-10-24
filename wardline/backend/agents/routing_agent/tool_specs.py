@@ -117,10 +117,10 @@ ROUTING_TOOL_SPECS: list[dict[str, Any]] = [
     },
     {
         "toolSpec": {
-            "name": "send_email",
+            "name": "send_sms",
             "description": (
-                "Notify a selected runner through the server-configured SES "
-                "sender. The runner's verified address is resolved in code."
+                "Notify a selected runner by SMS through the server-configured "
+                "sender. The runner's verified phone number is resolved in code."
             ),
             "inputSchema": {
                 "json": _object_schema(

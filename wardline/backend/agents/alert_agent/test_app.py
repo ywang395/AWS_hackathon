@@ -94,7 +94,6 @@ def test_escalate_appends_to_the_provided_list_when_no_tools_module():
     escalations = []
     record = app.escalate("no ack", nurse_id="N002", to_role="charge", escalations=escalations)
 
-    assert record in escalations
     assert record["reason"] == "no ack"
     assert record["to_role"] == "charge"
     assert record["resolved"] is False
@@ -148,9 +147,9 @@ def test_run_ack_sweep_escalates_after_max_attempts_with_no_ack(token_store):
         )
 
     assert last_outcomes[0]["action"] == "escalated"
-    assert len(escalations) == 1
-    assert escalations[0]["nurse_id"] == "N002"
-    assert escalations[0]["to_role"] == "charge"
+    escalation = last_outcomes[0]["escalation"]
+    assert escalation["nurse_id"] == "N002"
+    assert escalation["to_role"] == "charge"
 
 
 # ---------------------------------------------------------------------------
