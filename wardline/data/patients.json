@@ -1,0 +1,170 @@
+[
+  {
+    "patient_id": "P301",
+    "assigned_nurse_id": "N002",
+    "room": "301",
+    "name": "Ava Thornton",
+    "dob": "1958-11-02",
+    "allergies": ["Sulfa drugs"],
+    "meds": [
+      {"med": "Lisinopril", "dose": "10mg", "route": "PO", "due_at": "2024-01-15T02:30:00Z", "critical": false}
+    ],
+    "vitals": {"hr": 78, "bp": "128/76", "spo2": 97, "temp_f": 98.2, "recorded_at": "2024-01-15T02:05:00Z"},
+    "notes": "Ambulates with assistance.",
+    "snapshot_ts": "2024-01-15T02:05:00Z"
+  },
+  {
+    "patient_id": "P302",
+    "assigned_nurse_id": "N002",
+    "room": "302",
+    "name": "Noah Fenwick",
+    "dob": "1944-02-19",
+    "allergies": [],
+    "meds": [
+      {"med": "Metformin", "dose": "500mg", "route": "PO", "due_at": "2024-01-15T03:00:00Z", "critical": false}
+    ],
+    "vitals": {"hr": 82, "bp": "134/82", "spo2": 96, "temp_f": 98.6, "recorded_at": "2024-01-15T02:05:00Z"},
+    "notes": "",
+    "snapshot_ts": "2024-01-15T02:05:00Z"
+  },
+  {
+    "patient_id": "P303",
+    "assigned_nurse_id": "N002",
+    "room": "303",
+    "name": "Grace Linden",
+    "dob": "1967-07-30",
+    "allergies": ["Latex"],
+    "meds": [
+      {"med": "Furosemide", "dose": "20mg", "route": "IV", "due_at": "2024-01-15T02:15:00Z", "critical": false}
+    ],
+    "vitals": {"hr": 90, "bp": "140/88", "spo2": 95, "temp_f": 98.9, "recorded_at": "2024-01-15T02:05:00Z"},
+    "notes": "Strict I/O monitoring.",
+    "snapshot_ts": "2024-01-15T02:05:00Z"
+  },
+  {
+    "patient_id": "P304",
+    "assigned_nurse_id": "N002",
+    "room": "304",
+    "name": "Logan Pierce",
+    "dob": "1952-05-14",
+    "allergies": ["Penicillin"],
+    "meds": [
+      {"med": "Insulin", "dose": "6 units", "route": "SubQ", "due_at": "2024-01-15T02:20:00Z", "critical": true}
+    ],
+    "vitals": {"hr": 88, "bp": "122/80", "spo2": 97, "temp_f": 98.4, "recorded_at": "2024-01-15T02:05:00Z"},
+    "notes": "Blood glucose check prior to dose.",
+    "snapshot_ts": "2024-01-15T02:05:00Z"
+  },
+  {
+    "patient_id": "P305",
+    "assigned_nurse_id": "N003",
+    "room": "305",
+    "name": "Mara Odom",
+    "dob": "1979-09-09",
+    "allergies": [],
+    "meds": [
+      {"med": "Amlodipine", "dose": "5mg", "route": "PO", "due_at": "2024-01-15T04:00:00Z", "critical": false}
+    ],
+    "vitals": {"hr": 74, "bp": "118/74", "spo2": 98, "temp_f": 98.1, "recorded_at": "2024-01-15T02:05:00Z"},
+    "notes": "",
+    "snapshot_ts": "2024-01-15T02:05:00Z"
+  },
+  {
+    "patient_id": "P306",
+    "assigned_nurse_id": "N003",
+    "room": "306",
+    "name": "Theo Brandt",
+    "dob": "1961-12-25",
+    "allergies": ["Shellfish"],
+    "meds": [
+      {"med": "Atorvastatin", "dose": "40mg", "route": "PO", "due_at": "2024-01-15T06:00:00Z", "critical": false}
+    ],
+    "vitals": {"hr": 80, "bp": "130/80", "spo2": 96, "temp_f": 98.3, "recorded_at": "2024-01-15T02:05:00Z"},
+    "notes": "",
+    "snapshot_ts": "2024-01-15T02:05:00Z"
+  },
+  {
+    "patient_id": "P307",
+    "assigned_nurse_id": "N003",
+    "room": "307",
+    "name": "Elena Vasquez",
+    "dob": "1985-03-21",
+    "allergies": [],
+    "meds": [
+      {"med": "Acetaminophen", "dose": "650mg", "route": "PO", "due_at": "2024-01-15T02:45:00Z", "critical": false}
+    ],
+    "vitals": {"hr": 76, "bp": "116/72", "spo2": 99, "temp_f": 99.1, "recorded_at": "2024-01-15T02:05:00Z"},
+    "notes": "Pain 4/10 at last assessment.",
+    "snapshot_ts": "2024-01-15T02:05:00Z"
+  },
+  {
+    "patient_id": "P308",
+    "assigned_nurse_id": "N003",
+    "room": "308",
+    "name": "Harold Jennings",
+    "dob": "1938-08-08",
+    "allergies": ["Codeine"],
+    "meds": [
+      {"med": "Warfarin", "dose": "2mg", "route": "PO", "due_at": "2024-01-15T03:30:00Z", "critical": true}
+    ],
+    "vitals": {"hr": 70, "bp": "112/70", "spo2": 96, "temp_f": 97.9, "recorded_at": "2024-01-15T02:05:00Z"},
+    "notes": "INR pending; hold if bleeding noted.",
+    "snapshot_ts": "2024-01-15T02:05:00Z"
+  },
+  {
+    "patient_id": "P601",
+    "assigned_nurse_id": "N004",
+    "room": "601",
+    "name": "Rosa Imani",
+    "dob": "1971-01-11",
+    "allergies": [],
+    "meds": [
+      {"med": "Metoprolol", "dose": "25mg", "route": "PO", "due_at": "2024-01-15T03:10:00Z", "critical": false}
+    ],
+    "vitals": {"hr": 84, "bp": "126/78", "spo2": 97, "temp_f": 98.5, "recorded_at": "2024-01-15T02:05:00Z"},
+    "notes": "",
+    "snapshot_ts": "2024-01-15T02:05:00Z"
+  },
+  {
+    "patient_id": "P602",
+    "assigned_nurse_id": "N004",
+    "room": "602",
+    "name": "David Kowalski",
+    "dob": "1949-10-04",
+    "allergies": [],
+    "meds": [
+      {"med": "Heparin", "dose": "5000 units", "route": "SubQ", "due_at": "2024-01-15T02:40:00Z", "critical": true}
+    ],
+    "vitals": {"hr": 92, "bp": "136/86", "spo2": 95, "temp_f": 98.7, "recorded_at": "2024-01-15T02:05:00Z"},
+    "notes": "DVT prophylaxis; no stock confirmed anywhere as of downtime.",
+    "snapshot_ts": "2024-01-15T02:05:00Z"
+  },
+  {
+    "patient_id": "P603",
+    "assigned_nurse_id": "N004",
+    "room": "603",
+    "name": "Ingrid Solberg",
+    "dob": "1963-06-17",
+    "allergies": ["Iodine"],
+    "meds": [
+      {"med": "Levothyroxine", "dose": "75mcg", "route": "PO", "due_at": "2024-01-15T05:00:00Z", "critical": false}
+    ],
+    "vitals": {"hr": 72, "bp": "120/76", "spo2": 98, "temp_f": 98.0, "recorded_at": "2024-01-15T02:05:00Z"},
+    "notes": "",
+    "snapshot_ts": "2024-01-15T02:05:00Z"
+  },
+  {
+    "patient_id": "P604",
+    "assigned_nurse_id": "N004",
+    "room": "604",
+    "name": "Omar Haddad",
+    "dob": "1956-04-28",
+    "allergies": [],
+    "meds": [
+      {"med": "Albuterol", "dose": "2.5mg neb", "route": "INH", "due_at": "2024-01-15T02:35:00Z", "critical": false}
+    ],
+    "vitals": {"hr": 94, "bp": "124/80", "spo2": 94, "temp_f": 98.8, "recorded_at": "2024-01-15T02:05:00Z"},
+    "notes": "Mild wheeze on exam.",
+    "snapshot_ts": "2024-01-15T02:05:00Z"
+  }
+]
