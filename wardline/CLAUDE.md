@@ -232,14 +232,14 @@ Phase 2 (after Lin's Bedrock access + Alisher's seed data)
 
 #### Alisher — Backend (nurse agent + alerts)
 Phase 1 (start now)
-- [ ] `data/nurses.json`, `patients.json`, `inventory.json` per §5 incl. demo cases (insulin missing in Unit 4, heparin nowhere) → **commit within the first hour**
-- [ ] `scripts/seed.py` (runs later once tables exist)
-- [ ] `shared/auth.py`: token creation + hashed PIN verification, unit tested
-- [ ] `tools/patients.py`: `get_my_patients(nurse_id)`, `get_patient(room)` with ownership check, reading JSON
-- [ ] `tools/downtime_log.py`: `log_event()` + `check_recent_doses()` (double-dose logic), unit tested
-- [ ] `nurse_agent/prompt.md` (start from §12)
-- [ ] `shared/notify.py`: `send_email()` (SES) with `NOTIFY_DRY_RUN`
-- [ ] Alert agent logic: message builder, ack tracking, resend, escalate — tested with dry-run email
+- [x] `data/nurses.json`, `patients.json`, `inventory.json` per §5 incl. demo cases (insulin missing in Unit 4, heparin nowhere) → **commit within the first hour**
+- [x] `scripts/seed.py` (runs later once tables exist)
+- [x] `shared/auth.py`: token creation + hashed PIN verification, unit tested
+- [x] `tools/patients.py`: `get_my_patients(nurse_id)`, `get_patient(room)` with ownership check, reading JSON
+- [x] `tools/downtime_log.py`: `log_event()` + `check_recent_doses()` (double-dose logic), unit tested
+- [x] `nurse_agent/prompt.md` (start from §12)
+- [x] `shared/sms.py`: `send_sms()` with `SMS_DRY_RUN`
+- [x] Alert agent logic: message builder, ack tracking, resend, escalate — tested with dry-run SMS
 
 Phase 2 (after Sunny's agent loop + Lin's API)
 - [ ] `nurse_agent/app.py` on `run_agent()`: `/chat` returns brief, reply, patients, deliveries
