@@ -25,7 +25,8 @@ SpartHill Hacks 2026 · Track: AI-Driven Automation & Critical Service Continuit
 - Symptom: `/dashboard` returns 500, or alerts stop sending. `/health` may still say ok.
 - Fix (needs someone logged into the event portal with fresh creds in the `wardline` profile):
   `cd wardline && bash deploy/refresh_creds.sh 54.164.16.115 /tmp/wardline-key2.pem`
-  (keep `NOTIFY_DRY_RUN=0 DRY_RUN=0 NOTIFY_TO_OVERRIDE=lintu.wang@sjsu.edu FROM_EMAIL=lintuwun@gmail.com FRONTEND_BASE_URL=…/nurse` set — see the ops note in §9.)
+  (run it as `NOTIFY_DRY_RUN=0 DRY_RUN=0 FROM_EMAIL=lintuwun@gmail.com bash deploy/refresh_creds.sh …`. All 5 demo addresses are SES-verified, so **don't set `NOTIFY_TO_OVERRIDE`**: each nurse now gets their own alert. Runner "Critical delivery" emails stay off via `RUNNER_NOTIFY_DRY_RUN=1`, the script default.)
+- Each new outage (after **Restore**) re-alerts every on-shift nurse. Pressing **Simulate ransomware** again while already down only resends to nurses who haven't confirmed.
 - SSH key is at `/tmp/wardline-key2.pem`.
 
 **To reset the demo for a clean run (between takes):**

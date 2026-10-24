@@ -152,6 +152,21 @@ def test_run_ack_sweep_escalates_after_max_attempts_with_no_ack(token_store):
     assert escalation["to_role"] == "charge"
 
 
+def test_new_alert_cycle_emails_everyone_again(token_store):
+    """A second outage must re-alert nurses who acked or were escalated last time."""
+    store = app.InMemoryAckStore()
+    app.run_ack_sweep(store=store, nurses=FIXTURE_NURSES, token_store=token_store)
+    app.record_ack("N001", store=store)  # Dana acked the first outage
+    for _ in range(app.DEFAULT_MAX_ATTEMPTS):  # Kim never acked and gets escalated
+        app.run_ack_sweep(store=store, nurses=FIXTURE_NURSES, token_store=token_store)
+
+    assert app.start_new_alert_cycle(store=store) == 2
+
+    outcomes = {o["nurse_id"]: o for o in app.run_ack_sweep(store=store, nurses=FIXTURE_NURSES, token_store=token_store)}
+    assert outcomes["N001"]["action"] == "sent" and outcomes["N001"]["attempt"] == 1
+    assert outcomes["N002"]["action"] == "sent" and outcomes["N002"]["attempt"] == 1
+
+
 # ---------------------------------------------------------------------------
 # Lambda handler + tool bindings
 # ---------------------------------------------------------------------------

@@ -171,12 +171,19 @@ def control_outage() -> JSONResponse:
     from datetime import UTC, datetime
 
     started_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+    new_outage = _system_state().get("status") != "down"
     _set_system_state(status="down", outage_started_at=started_at)
+
+    # A new outage is a new incident: every on-shift nurse gets a fresh alert,
+    # even if they acked (or were escalated) in an earlier outage. Pressing the
+    # button again while already down keeps the current round.
+    alerts_cleared = _start_new_alert_cycle() if new_outage else 0
 
     # Publish for the feed/story (no Lambda target is subscribed to the bus).
     _safe_put_event("OutageDetected", CONTROL_SOURCE, {"started_at": started_at})
     # Do the work in-process: alert nurses + run an initial routing scan.
     result = _fan_out_outage(started_at)
+    result["alerts_cleared"] = alerts_cleared
     return JSONResponse(status_code=200, content=json.loads(json.dumps(result, default=str)))
 
 
@@ -188,6 +195,16 @@ def control_restore() -> JSONResponse:
     _set_system_state(status="up", outage_started_at=None)
     _safe_put_event("SystemRestored", CONTROL_SOURCE, {"restored_at": restored_at})
     return JSONResponse(status_code=200, content={"status": "up", "restored_at": restored_at})
+
+
+def _start_new_alert_cycle() -> int:
+    try:
+        from backend.agents.alert_agent import app as alert_app
+
+        return alert_app.start_new_alert_cycle(store=alert_app.get_ack_store())
+    except Exception as exc:  # noqa: BLE001 - never block the outage on a cleanup failure
+        print(json.dumps({"event": "alert_cycle_reset_failed", "error": str(exc)}))
+        return 0
 
 
 def _fan_out_outage(started_at: str) -> dict[str, Any]:
