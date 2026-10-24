@@ -32,7 +32,9 @@ fi
 
 # Preserve the non-credential settings; only the three AWS_* creds change.
 # FRONTEND_BASE_URL is the nurse link in alert emails (alert_agent appends ?token=...).
-printf 'AWS_ACCESS_KEY_ID=%s\nAWS_SECRET_ACCESS_KEY=%s\nAWS_SESSION_TOKEN=%s\nAWS_REGION=%s\nDATA_BACKEND=dynamodb\nMODEL_ID=us.anthropic.claude-haiku-4-5-20251001-v1:0\nNOTIFY_DRY_RUN=%s\nDRY_RUN=%s\nFROM_EMAIL=%s\nNOTIFY_TO_OVERRIDE=%s\nFRONTEND_BASE_URL=%s\n' \
+# AGENT_FEED_TABLE makes agent_loop write every agent decision to DynamoDB, which is
+# what the dashboard's live feed reads. Without it the feed stays empty.
+printf 'AWS_ACCESS_KEY_ID=%s\nAWS_SECRET_ACCESS_KEY=%s\nAWS_SESSION_TOKEN=%s\nAWS_REGION=%s\nDATA_BACKEND=dynamodb\nAGENT_FEED_TABLE=AgentFeed\nMODEL_ID=us.anthropic.claude-haiku-4-5-20251001-v1:0\nNOTIFY_DRY_RUN=%s\nDRY_RUN=%s\nFROM_EMAIL=%s\nNOTIFY_TO_OVERRIDE=%s\nFRONTEND_BASE_URL=%s\n' \
   "$AK" "$SK" "$ST" "$REGION" \
   "${NOTIFY_DRY_RUN:-1}" "${DRY_RUN:-1}" \
   "${FROM_EMAIL:-lintuwun@gmail.com}" "${NOTIFY_TO_OVERRIDE:-}" \
