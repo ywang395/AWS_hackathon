@@ -24,10 +24,28 @@ ROUTING_TOOL_SPECS: list[dict[str, Any]] = [
         "toolSpec": {
             "name": "get_doses_due",
             "description": (
-                "List medication doses that require routing, including room, "
-                "medication, due time, and criticality."
+                "Return snapshot_ts and doses from the patient records with "
+                "room, medication, due time, criticality, home cabinet, "
+                "needs_routing, existing_delivery, and open_escalation_id. "
+                "Pass room and med to resolve one requested dose; omit both "
+                "to scan doses due within 60 minutes of the snapshot."
             ),
-            "inputSchema": {"json": _object_schema()},
+            "inputSchema": {
+                "json": _object_schema(
+                    {
+                        "room": {
+                            "type": "string",
+                            "description": "Patient room from the event.",
+                            "minLength": 1,
+                        },
+                        "med": {
+                            "type": "string",
+                            "description": "Medication name from the event.",
+                            "minLength": 1,
+                        },
+                    }
+                )
+            },
         }
     },
     {
@@ -117,10 +135,11 @@ ROUTING_TOOL_SPECS: list[dict[str, Any]] = [
     },
     {
         "toolSpec": {
-            "name": "send_sms",
+            "name": "send_email",
             "description": (
-                "Notify a selected runner by SMS through the server-configured "
-                "sender. The runner's verified phone number is resolved in code."
+                "Notify a selected runner by email through the server-configured "
+                "SES sender. The runner's email address is resolved in code. "
+                "Returns status 'sent' or 'dry_run'."
             ),
             "inputSchema": {
                 "json": _object_schema(
@@ -132,13 +151,15 @@ ROUTING_TOOL_SPECS: list[dict[str, Any]] = [
                         },
                         "subject": {
                             "type": "string",
-                            "description": "Brief delivery notification subject.",
+                            "description": "Brief one-line email subject.",
                             "minLength": 1,
+                            "maxLength": 200,
                         },
                         "body": {
                             "type": "string",
                             "description": (
-                                "Delivery room, medication, source, and priority."
+                                "Plain-text email body: delivery room, "
+                                "medication, source, priority, and due time."
                             ),
                             "minLength": 1,
                         },
@@ -152,7 +173,8 @@ ROUTING_TOOL_SPECS: list[dict[str, Any]] = [
         "toolSpec": {
             "name": "escalate",
             "description": (
-                "Create a human escalation when safe routing cannot be proven. "
+                "Create a human escalation when safe routing cannot be proven "
+                "and publish EscalationNeeded so the charge nurse is alerted. "
                 "The routing agent identity is bound by server code."
             ),
             "inputSchema": {
@@ -172,6 +194,14 @@ ROUTING_TOOL_SPECS: list[dict[str, Any]] = [
                             "type": "string",
                             "description": "Role receiving the escalation.",
                             "enum": ["charge"],
+                        },
+                        "med": {
+                            "type": "string",
+                            "description": (
+                                "Affected medication; prevents duplicate "
+                                "escalations for the same dose."
+                            ),
+                            "minLength": 1,
                         },
                     },
                     ["reason", "room", "to_role"],

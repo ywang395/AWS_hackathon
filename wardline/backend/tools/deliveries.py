@@ -43,11 +43,40 @@ def _normalize_due_at(due_at: str) -> str:
     return canonical.isoformat(timespec=precision).replace("+00:00", "Z")
 
 
+def build_request_id(room: str, med: str, due_at: str) -> str:
+    """Canonical delivery key ``{room}-{med}-{due_at}`` (CLAUDE.md §2).
+
+    Every agent must build request IDs through this function (the nurse
+    agent's ``request_med`` / ``get_delivery_status`` included) so casing or
+    timestamp formatting can never produce two keys for the same dose.
+    The medication is case-folded and ``due_at`` is canonical UTC.
+    """
+
+    normalized_room = _require_non_empty_string(room, field="room")
+    normalized_med = _require_non_empty_string(med, field="med")
+    return f"{normalized_room}-{normalized_med.casefold()}-{_normalize_due_at(due_at)}"
+
+
 def reset_deliveries() -> None:
     """Clear the in-memory store for local runs and tests."""
 
     with _STORE_LOCK:
         _DELIVERY_STORE.clear()
+
+
+def get_delivery(request_id: str) -> dict[str, Any] | None:
+    """Return a copy of one delivery, or None if it does not exist."""
+
+    with _STORE_LOCK:
+        delivery = _DELIVERY_STORE.get(request_id)
+        return dict(delivery) if delivery is not None else None
+
+
+def list_deliveries() -> list[dict[str, Any]]:
+    """Return copies of every stored delivery."""
+
+    with _STORE_LOCK:
+        return [dict(delivery) for delivery in _DELIVERY_STORE.values()]
 
 
 def create_delivery(
@@ -75,9 +104,7 @@ def create_delivery(
     normalized_runner = _require_non_empty_string(runner_id, field="runner_id")
 
     # Normalize key fields so casing or outer whitespace cannot defeat dedupe.
-    request_id = (
-        f"{normalized_room}-{normalized_med.casefold()}-{normalized_due_at}"
-    )
+    request_id = build_request_id(normalized_room, normalized_med, normalized_due_at)
 
     with _STORE_LOCK:
         existing = _DELIVERY_STORE.get(request_id)

@@ -2,6 +2,9 @@
 AGENT.md
 proposal.md
 SETUP.md
+explanation.md
+.env
+.env.*
 __pycache__/
 .pytest_cache/
 .pytest_tmp/
