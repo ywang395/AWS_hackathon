@@ -20,18 +20,22 @@ DynamoDB-backed `LogStore` (via `shared/db.py`) without changing any
 caller -- including `tools/patients.py` ownership checks, which should run
 BEFORE `patient_id` ever reaches these functions.
 
-Unlike `tools/patients.py`'s default JSON loader, there is deliberately NO
-module-level default store here: the log is mutable, per-request state,
-and must never silently leak between tests or Lambda invocations. Callers
-must pass a `store=` explicitly, or use `bind_downtime_log_tools`, which
-creates one scoped to a single nurse/patient session.
+Callers pass `store=` explicitly. `default_log_store()` returns the shared
+store for the running process: the `DowntimeLog` table when
+DATA_BACKEND=dynamodb, otherwise one process-wide InMemoryLogStore (the
+single-process dev/demo server, CLAUDE.md section 3). The log must be shared
+across nurses and requests, because the double-dose check depends on seeing
+every dose given to a patient. Tests pass their own store, so state never
+leaks between them.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, fields
 from datetime import datetime, timedelta, timezone
 from typing import Callable, Literal, Optional, Protocol
+
+from backend.shared import db
 
 EventType = Literal["med_given", "vital", "note"]
 
@@ -77,12 +81,37 @@ class InMemoryLogStore:
         return list(self._entries.get(patient_id, []))
 
 
+class DynamoLogStore:
+    """`DowntimeLog` table (CLAUDE.md section 5): PK patient_id, SK ts."""
+
+    def append(self, entry: LogEntry) -> None:
+        db.put_item("downtime_log", {k: v for k, v in asdict(entry).items() if v is not None})
+
+    def entries_for(self, patient_id: str) -> list[LogEntry]:
+        names = [f.name for f in fields(LogEntry)]
+        return [
+            LogEntry(**{name: row.get(name) for name in names})
+            for row in db.query("downtime_log", "patient_id", patient_id)
+        ]
+
+
+_process_log_store = InMemoryLogStore()
+
+
+def default_log_store() -> LogStore:
+    """The shared log for this process (see module docstring)."""
+    return DynamoLogStore() if db.use_dynamodb() else _process_log_store
+
+
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    # Unique per write: a second entry with the same (patient_id, ts) key
+    # would silently overwrite the first in DynamoDB.
+    return db.unique_timestamp()
 
 
 def _parse_iso(ts: str) -> datetime:
-    return datetime.strptime(ts, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    parsed = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
 def log_event(
@@ -140,7 +169,8 @@ def check_recent_doses(
         for e in store.entries_for(patient_id)
         if e.type == "med_given" and med.lower() in e.detail.lower() and _parse_iso(e.ts) >= cutoff
     ]
-    matches.sort(key=lambda e: e.ts, reverse=True)
+    # Sort on parsed time: second- and microsecond-precision strings do not sort correctly as text.
+    matches.sort(key=lambda e: _parse_iso(e.ts), reverse=True)
     return matches
 
 

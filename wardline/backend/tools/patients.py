@@ -31,6 +31,8 @@ import json
 from pathlib import Path
 from typing import Callable, Optional
 
+from backend.shared import db
+
 _DEFAULT_PATIENTS_PATH = Path(__file__).resolve().parents[2] / "data" / "patients.json"
 
 
@@ -50,10 +52,12 @@ class PatientAccessDenied(Exception):
 def load_patients(path: Optional[Path] = None) -> list[dict]:
     """
     Load the full patient roster. Default source is `data/patients.json`.
-    Pass `path=` to point at a different fixture (tests do this), or
-    replace this function entirely in Phase 2 with one that queries
-    DynamoDB instead of reading JSON.
+    Pass `path=` to point at a different fixture (tests do this). With
+    DATA_BACKEND=dynamodb and no `path=`, it scans the `Patients` table
+    instead (shared/db.py).
     """
+    if path is None and db.use_dynamodb():
+        return db.scan("patients")
     target = path or _DEFAULT_PATIENTS_PATH
     with open(target, "r", encoding="utf-8") as fh:
         return json.load(fh)
@@ -66,6 +70,9 @@ def get_my_patients(nurse_id: str, patients: Optional[list[dict]] = None) -> lis
     `shared.auth.verify_token` / `authenticate` -- never from client or
     model input.
     """
+    if patients is None and db.use_dynamodb():
+        # Query the assigned_nurse_id GSI so other nurses' rows never leave DynamoDB.
+        return db.query("patients", "assigned_nurse_id", nurse_id, index_name=db.PATIENTS_BY_NURSE_INDEX)
     roster = patients if patients is not None else load_patients()
     return [p for p in roster if p.get("assigned_nurse_id") == nurse_id]
 

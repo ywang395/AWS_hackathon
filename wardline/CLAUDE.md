@@ -242,11 +242,13 @@ Phase 1 (start now)
 - [x] Alert agent logic: message builder, ack tracking, resend, escalate — tested with dry-run SMS
 
 Phase 2 (after Sunny's agent loop + Lin's API)
-- [ ] `nurse_agent/app.py` on `run_agent()`: `/chat` returns brief, reply, patients, deliveries
-- [ ] `request_med` tool → `MedRequested` event
+- [x] `nurse_agent/app.py` on `run_agent()`: `/chat` returns brief, reply, patients, deliveries
+- [x] `request_med` tool → `MedRequested` event
 - [ ] Switch tools from JSON to DynamoDB; run seed
+  - Code ready: tools read DynamoDB when `DATA_BACKEND=dynamodb` (`shared/db.py`); passes against the in-memory fake (`test_dynamodb_backend.py`). Go-live: `python scripts/go_live_dynamodb.py` (seeds + reads back). Awaits a run on the workshop account (boto3 + credentials + deployed tables).
 - [ ] Turn off email dry-run; test with real (SES-verified) inboxes
-- [ ] Demo cases pass: Kim escalation, double-dose STOP, refuse other nurse's patient
+  - Code ready: `shared/notify.py` sends via SES v2; send path passes with a fake client (`test_go_live_scripts.py`). Go-live: set `NOTIFY_TO_OVERRIDE` to a verified inbox in `scripts/live_config.py`, then `python scripts/go_live_email.py`. Awaits a run on the workshop account (boto3 + SES send perms).
+- [x] Demo cases pass: Kim escalation, double-dose STOP, refuse other nurse's patient
 
 #### Salih — Frontend
 Phase 1 (start now)

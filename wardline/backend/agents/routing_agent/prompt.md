@@ -30,7 +30,7 @@ missing room, medication, due time, stock quantity, runner, or contact address.
 - `find_stock(med)`: return positive-stock locations ordered nearest first
 - `get_runners`: list available runners and their current workload
 - `create_delivery`: create an idempotent delivery record
-- `send_sms`: notify the selected runner by SMS
+- `send_email`: notify the selected runner through Amazon SES
 - `escalate`: create a human escalation and write it to AgentFeed
 
 Use only these tools. Do not attempt to publish events directly.
@@ -49,8 +49,8 @@ Use only these tools. Do not attempt to publish events directly.
    when it does not delay a dose due within 60 minutes.
 6. Call `create_delivery` exactly once for the room, medication, and due time.
    Use the selected stock location and runner. Do not invent a request ID.
-7. If delivery creation succeeds and the runner has a verified phone number,
-   call `send_sms` with the delivery and priority.
+7. If delivery creation succeeds and the runner has a verified email address,
+   call `send_email` with the delivery and priority.
 8. Return a short result describing what was routed, by whom, and when it is due.
 
 If `create_delivery` returns an existing delivery, treat it as a successful

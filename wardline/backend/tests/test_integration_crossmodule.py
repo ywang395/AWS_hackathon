@@ -106,13 +106,13 @@ def test_patients_and_nurses_reference_each_other_consistently():
 
 
 # ---------------------------------------------------------------------------
-# §8 routing agent tool set -- CLAUDE.md lists send_sms for runner dispatch
+# §8 routing agent tool set -- CLAUDE.md lists send_email for runner dispatch
 # ---------------------------------------------------------------------------
 
 def test_routing_agent_tool_names_cover_claude_md_section_8():
     """
     CLAUDE.md section 8 routing tools: get_doses_due, find_stock,
-    get_runners, create_delivery, send_sms, escalate.
+    get_runners, create_delivery, send_email, escalate.
     """
     from backend.agents.routing_agent.tool_specs import ROUTING_TOOL_NAMES
 
@@ -121,7 +121,7 @@ def test_routing_agent_tool_names_cover_claude_md_section_8():
         "find_stock",
         "get_runners",
         "create_delivery",
-        "send_sms",
+        "send_email",
         "escalate",
     }
     missing = expected - set(ROUTING_TOOL_NAMES)

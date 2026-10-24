@@ -1,79 +1,56 @@
 # AWS_hackathon
-Testing Kiro IDE
 
-## Wardline -- Phase 1 status (`wardline/`)
+## Wardline (`wardline/`)
 
-See `wardline/CLAUDE.md` for the full project spec. This section tracks
-what has been implemented so far and any workarounds taken along the way.
+Full spec: `wardline/CLAUDE.md`. Tests run from `wardline/` with `python -m pytest` and need no AWS access or boto3.
 
-### Implemented (Alisher's Phase 1 checklist, CLAUDE.md section 9)
+### Nurse agent + alerts
 
-- `data/nurses.json`, `data/patients.json`, `data/inventory.json` --
-  synthetic seed data: 3 nurses + 1 charge (Dana) + 2 runners (Marcus,
-  Priya), 12 patients, 3 inventory locations. Demo cases are baked in:
-  insulin missing from the Unit 4 Cabinet but in stock at the Unit 6
-  Cabinet and Central Pharmacy (room 304, Logan Pierce), and heparin with
-  zero stock everywhere (room 602, David Kowalski).
-- `scripts/seed.py` -- loads `data/*.json` into DynamoDB via `boto3`
-  (lazy import; only needed once `template.yaml` is deployed). Supports
-  `--dry-run` and `--only <fixture>`.
-- `backend/shared/auth.py` -- PBKDF2 PIN hashing + secure-link token
-  creation/verification, with injectable storage so it runs with no AWS
-  dependency in Phase 1.
-- `backend/tools/patients.py` -- `get_my_patients` / `get_patient` with
-  server-side ownership enforcement (never trusts a model-supplied
-  `nurse_id`), plus `bind_patient_tools` for wiring into the Bedrock tool
-  loop later.
-- `backend/tools/downtime_log.py` -- `log_event` / `check_recent_doses`
-  double-dose detection.
-- `backend/agents/nurse_agent/prompt.md` -- system prompt (CLAUDE.md
-  section 12) plus a tool reference list.
-- `backend/shared/sms.py` -- `send_sms` / `send_bulk_sms` over Amazon SNS,
-  honoring `SMS_DRY_RUN=1`; boto3 is only imported on the live-send path.
-- `backend/agents/alert_agent/app.py` -- message builder, ack tracking
-  (`Alerts`-table shape), resend logic, and `escalate()`, driven by
-  `run_ack_sweep()` and exposed as Lambda `handler()`.
-- Unit tests for all of the above live next to their modules as
-  `test_*.py` (46 tests, run with `pytest` from the `wardline/` folder).
-  A `conftest.py` at the `wardline/` root puts the project on `sys.path`
-  so `backend.*` imports resolve without needing `__init__.py` files.
+- `data/*.json`: synthetic seed data with the demo cases (insulin missing in Unit 4 but stocked in Unit 6, heparin nowhere). Staff use `@example.com` addresses, and every account's demo PIN is `1234`. Both are synthetic, not real credentials.
+- `scripts/seed.py`: loads `data/` into DynamoDB. Floats such as `temp_f` are converted to Decimal, which boto3 requires.
+- `backend/shared/db.py`: DynamoDB helpers and the `DATA_BACKEND` switch.
+- `backend/shared/auth.py`: secure-link tokens and PBKDF2 PIN hashes.
+- `backend/shared/notify.py`: SES v2 email (replaces `sms.py`, per CLAUDE.md section 3).
+- `backend/tools/patients.py`, `backend/tools/downtime_log.py`: patient scoping and the shared dose log.
+- `backend/agents/nurse_agent/app.py`: `POST /chat`. `handle_chat(body)` for any server, `api_handler(event)` for API Gateway-style events.
+- `backend/agents/alert_agent/app.py`: alert, ack, resend, escalate. Opening the link with a valid PIN counts as the ack.
+- Demo cases (Kim escalation, double-dose STOP, refusing another nurse's patient): `backend/tests/test_demo_cases.py`.
 
-### Demo PIN (synthetic, not sensitive)
+### Configuration
 
-Every seeded nurse uses PIN `1234` for the downtime chat login. This is
-throwaway synthetic data for the hackathon demo, not a real credential.
+| Env var | Default | Effect |
+|---|---|---|
+| `DATA_BACKEND` | `json` | `dynamodb` moves tokens, nurses, patients, the downtime log, alerts and chat history to the section 5 tables |
+| `NOTIFY_DRY_RUN` | `1` | `0` sends real email through SES |
+| `FROM_EMAIL` | none | SES-verified sender. Required when `NOTIFY_DRY_RUN=0` |
+| `NOTIFY_TO_OVERRIDE` | none | Sends every live email to one verified inbox (the seed addresses can't receive mail) |
+| `FRONTEND_BASE_URL` | `https://wardline.example/nurse` | Base of the secure link in alert emails |
+| `DRY_RUN` | `0` | `1` prints EventBridge events (e.g. `MedRequested`) instead of publishing |
+| `MODEL_ID` | none | Bedrock inference profile for `/chat` questions. Without it, chat replies "assistant unavailable"; the brief still works |
+| `AWS_REGION` | `us-east-1` | Region for DynamoDB, SES, Bedrock and EventBridge |
+| `NURSES_TABLE`, `PATIENTS_TABLE`, ... | section 5 names | Table name overrides |
 
-### Workarounds
+### Going live
 
-- **`tools/escalation.py` not yet built.** That file is owned by the
-  routing-agent workstream (CLAUDE.md section 9) and is still an empty
-  placeholder. `agents/alert_agent/app.py::escalate()` tries to import
-  `tools.escalation.escalate` first; if that import fails, it falls back
-  to appending escalation records to a local list (or an in-memory
-  fallback list) so the alert agent is fully functional and testable on
-  its own right now. No code changes will be needed in `alert_agent` once
-  the real `tools/escalation.py` lands -- the import just starts
-  succeeding.
-- **`shared/agent_loop.py` (the Bedrock Converse tool-use loop) is still a
-  stub.** The alert and nurse agents' tool functions are written as plain,
-  directly-callable Python (so they're independently testable today) but
-  are also exposed as `tool_impls`-shaped dicts (`alert_agent.get_tool_impls()`,
-  `tools.patients.bind_patient_tools()`, `tools.downtime_log.bind_downtime_log_tools()`)
-  so wiring them into `run_agent()` later is a drop-in change, not a
-  rewrite.
-- **Local dev/test environment runs PowerShell on Windows, not a
-  POSIX shell.** A couple of adjustments were needed purely for this dev
-  machine, unrelated to the application code itself:
-  - This workspace's terminal tool echoes commands back character-by-character
-    while they execute, which can look like corrupted output even though
-    the command ran correctly. Workaround used throughout development:
-    redirect command output to a file (`> out.txt 2>&1`) and read the file
-    back separately, rather than trusting the inline terminal transcript.
-  - File writes used `[System.IO.File]::WriteAllText(path, content, (New-Object System.Text.UTF8Encoding $false))`
-    instead of `Set-Content -Encoding utf8`, because Windows PowerShell's
-    `utf8` encoding adds a byte-order-mark that breaks `json.load()` on
-    the seed data files (Python's default `utf-8` decoder does not strip
-    a BOM; `utf-8-sig` does, but there's no reason to require that of
-    every reader). The UTF8Encoding override writes clean, BOM-less UTF-8
-    that both Python's `json` module and `open(..., encoding="utf-8")`
-    read without any special-casing.
+These steps need boto3 and credentials for the workshop account. They haven't been run from this repo yet.
+
+```powershell
+pip install boto3
+cd wardline
+python scripts/seed.py --dry-run      # counts only
+python scripts/seed.py                # writes Nurses, Patients, Inventory
+
+$env:DATA_BACKEND = "dynamodb"
+$env:NOTIFY_DRY_RUN = "0"
+$env:FROM_EMAIL = "<SES-verified sender>"
+$env:NOTIFY_TO_OVERRIDE = "<SES-verified inbox>"
+python -c "from backend.agents.alert_agent import app; print(app.handler({'detail-type': 'OutageDetected'}))"
+```
+
+The last command emails all four on-shift nurses (Dana, Kim, Jordan and Sam). With the override set, every message lands in the one verified inbox.
+
+### Open items outside this workstream
+
+- Routing agent: `get_doses_due` and `get_runners` still use local fixtures that don't match `data/` (heparin in room 312 instead of 602; runners `marcus`/`priya` instead of `N005`/`N006`), and `create_delivery` writes to memory. Until they read the Patients, Nurses and Deliveries tables, a nurse's `request_med` and the delivery it triggers won't share a `request_id`, and `/chat` won't show deliveries with `DATA_BACKEND=dynamodb`. The routing agent's `send_email` is also still a dry-run stub.
+- Compute host (CLAUDE.md section 3) is still undecided. `handle_chat` doesn't depend on the host.
+- `/chat` has no limit on PIN attempts. The 32-byte link token is the main barrier, but a lockout after a few bad PINs would be worth adding.

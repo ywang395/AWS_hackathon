@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_STEPS = 8
 DEFAULT_MODEL_MAX_TOKENS = 1024
-DEFAULT_REGION = "us-west-2"
+DEFAULT_REGION = "us-east-1"  # CLAUDE.md section 3
 SUPPORTED_FINAL_STOP_REASONS = frozenset({"end_turn", "stop_sequence"})
 
 ToolImplementation = Callable[..., Any]

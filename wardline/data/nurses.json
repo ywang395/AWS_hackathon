@@ -2,7 +2,7 @@
   {
     "nurse_id": "N001",
     "name": "Dana Whitfield",
-    "phone": "+15555550100",
+    "email": "dana.whitfield@example.com",
     "pin_hash": "pbkdf2_sha256$390000$980d6542f269c49e73a83e8f21ad2c60$574ba990c10accda4512bca5ec73a76a69a05b40a713d59f74548a5b6b15d10b",
     "unit": "Unit 4-6",
     "role": "charge",
@@ -12,7 +12,7 @@
   {
     "nurse_id": "N002",
     "name": "Kim Alvarez",
-    "phone": "+15555550101",
+    "email": "kim.alvarez@example.com",
     "pin_hash": "pbkdf2_sha256$390000$d6a28f878fc77de1e4cc49ec2d5829e3$619715ed22d5079ce2e6511c7a49f782accaba0afe79ad1c7b2e65672c316b49",
     "unit": "Unit 4",
     "role": "nurse",
@@ -22,7 +22,7 @@
   {
     "nurse_id": "N003",
     "name": "Jordan Lee",
-    "phone": "+15555550102",
+    "email": "jordan.lee@example.com",
     "pin_hash": "pbkdf2_sha256$390000$59f0174f223cda123f0d6d48db74837f$9feb05cb9456d147376ba20223092490837be06bbf5a61042c414fbcd7c301db",
     "unit": "Unit 4",
     "role": "nurse",
@@ -32,7 +32,7 @@
   {
     "nurse_id": "N004",
     "name": "Sam Okafor",
-    "phone": "+15555550103",
+    "email": "sam.okafor@example.com",
     "pin_hash": "pbkdf2_sha256$390000$a6c388df2be534ece56e4ced571ef700$0fce9b8fa9abfdc475eaa887e9bb5829ddfa98e43bb8d8f6327d8954dfd64f11",
     "unit": "Unit 6",
     "role": "nurse",
@@ -42,7 +42,7 @@
   {
     "nurse_id": "N005",
     "name": "Marcus Webb",
-    "phone": "+15555550104",
+    "email": "marcus.webb@example.com",
     "pin_hash": "pbkdf2_sha256$390000$385efc3d1a7aefb36651a783e5fb370a$b415323dd03b8f26329a16937ae8a4b6dbf071634f292df9d9b277a941d2c064",
     "unit": "Central Pharmacy",
     "role": "runner",
@@ -52,7 +52,7 @@
   {
     "nurse_id": "N006",
     "name": "Priya Nair",
-    "phone": "+15555550105",
+    "email": "priya.nair@example.com",
     "pin_hash": "pbkdf2_sha256$390000$33b63e6db648ffa1225542619f526972$c194c995a5cc6e2b7c6d9bdc704c96ce0b37e4fe866b8a806357a5dbcbdc931e",
     "unit": "Central Pharmacy",
     "role": "runner",

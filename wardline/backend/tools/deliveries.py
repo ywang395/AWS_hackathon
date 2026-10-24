@@ -50,6 +50,28 @@ def reset_deliveries() -> None:
         _DELIVERY_STORE.clear()
 
 
+def build_request_id(room: str, med: str, due_at: str) -> str:
+    """CLAUDE.md section 2 idempotency key: {room}-{med}-{due_at}.
+
+    Shared by create_delivery and the nurse agent's request_med
+    (agents/nurse_agent/app.py), so a MedRequested event and the delivery it
+    produces carry the same ID. Casing and timestamp format are normalized
+    so they cannot defeat dedupe.
+    """
+    return (
+        f"{_require_non_empty_string(room, field='room')}-"
+        f"{_require_non_empty_string(med, field='med').casefold()}-"
+        f"{_normalize_due_at(due_at)}"
+    )
+
+
+def list_deliveries() -> list[dict[str, Any]]:
+    """Copies of every in-memory delivery: read side for the nurse agent and /dashboard."""
+
+    with _STORE_LOCK:
+        return [dict(delivery) for delivery in _DELIVERY_STORE.values()]
+
+
 def create_delivery(
     room: str,
     med: str,
@@ -74,10 +96,7 @@ def create_delivery(
     normalized_priority = _require_non_empty_string(priority, field="priority")
     normalized_runner = _require_non_empty_string(runner_id, field="runner_id")
 
-    # Normalize key fields so casing or outer whitespace cannot defeat dedupe.
-    request_id = (
-        f"{normalized_room}-{normalized_med.casefold()}-{normalized_due_at}"
-    )
+    request_id = build_request_id(normalized_room, normalized_med, normalized_due_at)
 
     with _STORE_LOCK:
         existing = _DELIVERY_STORE.get(request_id)
