@@ -175,12 +175,23 @@ Phase 1 (start now)
 - [x] Enable Bedrock model access (Claude Haiku) in `us-east-1` — verified via Converse. **Use inference-profile `MODEL_ID=us.anthropic.claude-haiku-4-5-20251001-v1:0`** (the bare `anthropic.claude-haiku-4-5-...` ID fails with "on-demand throughput isn't supported" — must use the `us.` inference profile).
 - [x] Verify demo email addresses in SES (sandbox) — verified: `lintuwun@gmail.com`, `lintu.wang@sjsu.edu`. **Each nurse/runner demo address must be SES-verified (sandbox) before it can receive mail.** Sender for `send_email` must also be a verified identity (use `lintuwun@gmail.com` as the `FROM_EMAIL`).
 - [x] Send one test email via SES — sent gmail → sjsu, SES returned a MessageId (delivered).
-- [ ] `template.yaml` skeleton: all DynamoDB tables from §5
-- [ ] EventBridge bus `wardline` + rules for the 5 events in §6 (placeholder Lambda targets)
-- [ ] API Gateway HTTP API with CORS + placeholder routes from §7
-- [ ] S3 bucket with static website hosting
-- [ ] `sam deploy` the empty stack successfully
-- [ ] Share with team: API URL, table names, region
+- [x] `template.yaml` skeleton: all DynamoDB tables from §5
+- [x] EventBridge bus `wardline` + rules for the 5 events in §6 (targets added in Phase 2 — see note below)
+- [x] API Gateway HTTP API with CORS (routes wired in Phase 2 — see note below)
+- [x] S3 bucket with static website hosting
+- [x] Deploy the empty stack successfully — **deployed via `aws cloudformation deploy`** (not `sam` CLI; see note). Stack name `wardline`.
+- [x] Share with team: API URL, table names, region (see **Deployed resources** below)
+
+> **IAM constraint (workshop account):** `WSParticipantRole` denies `iam:CreateRole`, so the Phase 1 stack creates **no Lambdas** (every Lambda needs an execution role). EventBridge rules and the HTTP API are deployed **without** Lambda targets/integrations; those are wired in Phase 2 once real agent code exists and an execution role is sorted. Deploy with `aws cloudformation deploy --template-file template.yaml --stack-name wardline --capabilities CAPABILITY_IAM CAPABILITY_AUTO_EXPAND --region us-east-1` (the Homebrew `sam` CLI is broken on this machine — Python 3.15/libexpat mismatch).
+
+> **Deployed resources (share these):**
+> - Region: `us-east-1`
+> - API base URL: `https://6haxdip6xj.execute-api.us-east-1.amazonaws.com`
+> - EventBridge bus: `wardline`
+> - DynamoDB tables: `Nurses`, `Patients`, `Inventory`, `Deliveries`, `DowntimeLog`, `Tokens`, `Alerts`, `Escalations`, `AgentFeed`, `ChatHistory`, `SystemState`
+> - Frontend S3 bucket: `wardline-frontend-580066280520`
+> - Frontend URL: `http://wardline-frontend-580066280520.s3-website-us-east-1.amazonaws.com`
+> - SES verified sender: `lintuwun@gmail.com` (recipients must also be SES-verified while in sandbox)
 
 Phase 2 (after backend pushes code)
 - [ ] Wire real Lambdas into SAM (agents, `/chat`, `/dashboard`, `/control`)
